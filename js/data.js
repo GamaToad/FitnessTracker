@@ -260,6 +260,35 @@ export async function sessionSets(mesoId, week, dayIndex, exercise) {
     .sort((a, b) => +a.setNumber - +b.setNumber);
 }
 
+// Sessions — per-workout metadata (time, location, RPE, leaf).
+export async function listSessions() {
+  return cached("sessions", () => sheets.readAll("sessions"));
+}
+
+export async function getSession(mesoId, week, dayIndex, date) {
+  const all = await listSessions();
+  return all.find(
+    (s) =>
+      s.mesoId === mesoId &&
+      String(s.week) === String(week) &&
+      String(s.dayIndex) === String(dayIndex) &&
+      s.date === date,
+  ) || null;
+}
+
+export async function saveSession(session) {
+  const existing = await getSession(
+    session.mesoId, session.week, session.dayIndex, session.date,
+  );
+  if (existing) {
+    await sheets.upsertRow("sessions", "id", { ...existing, ...session, id: existing.id });
+  } else {
+    const row = { id: newId(), ...session };
+    await sheets.appendRow("sessions", row);
+  }
+  invalidate("sessions");
+}
+
 // Counts how many sets each muscle group has accumulated in a given week.
 export async function weeklyVolume(mesoId, week) {
   const all = await listSets();

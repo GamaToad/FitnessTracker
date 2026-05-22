@@ -70,6 +70,22 @@ const TABS = {
       "notes",
     ],
   },
+  sessions: {
+    title: "Sessions",
+    headers: [
+      "id",
+      "mesoId",
+      "week",
+      "dayIndex",
+      "date",
+      "startTime",
+      "endTime",
+      "location",
+      "totalRPE",
+      "leafStatus",
+      "notes",
+    ],
+  },
 };
 
 export function getSpreadsheetId() {

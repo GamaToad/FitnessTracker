@@ -28,7 +28,46 @@ export async function render(container) {
   const root = el("div", {});
   container.append(root);
 
-  function rerender() {
+  const session = {
+    startTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+    endTime: "",
+    location: localStorage.getItem("rp.lastLocation") || "",
+    totalRPE: "",
+    leafStatus: "No",
+    notes: "",
+  };
+
+  async function loadExistingSession() {
+    const existing = await data.getSession(active.id, chosenWeek, chosenDay, isoToday());
+    if (existing) {
+      session.startTime = existing.startTime || session.startTime;
+      session.endTime = existing.endTime || "";
+      session.location = existing.location || session.location;
+      session.totalRPE = existing.totalRPE || "";
+      session.leafStatus = existing.leafStatus || "No";
+      session.notes = existing.notes || "";
+    }
+  }
+
+  async function saveSessionMeta() {
+    if (!session.endTime) {
+      session.endTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+    if (session.location) localStorage.setItem("rp.lastLocation", session.location);
+    await run(
+      data.saveSession({
+        mesoId: active.id,
+        week: chosenWeek,
+        dayIndex: chosenDay,
+        date: isoToday(),
+        ...session,
+      }),
+      { ok: "Session saved" },
+    );
+  }
+
+  async function rerender() {
+    await loadExistingSession();
     root.replaceChildren();
     root.append(
       el("h1", {}, "Train"),
@@ -58,6 +97,68 @@ export async function render(container) {
             ),
           ),
         ),
+      ),
+    );
+
+    // Session metadata
+    root.append(
+      el("section", { class: "card session-meta" },
+        el("h3", {}, "Session info"),
+        el("div", { class: "field-row four" },
+          el("div", { class: "field" },
+            el("label", {}, "Start time"),
+            el("input", {
+              type: "time", value: session.startTime,
+              oninput: (e) => (session.startTime = e.target.value),
+            }),
+          ),
+          el("div", { class: "field" },
+            el("label", {}, "End time"),
+            el("input", {
+              type: "time", value: session.endTime,
+              placeholder: "auto on save",
+              oninput: (e) => (session.endTime = e.target.value),
+            }),
+          ),
+          el("div", { class: "field" },
+            el("label", {}, "Location"),
+            el("input", {
+              type: "text", value: session.location,
+              placeholder: "e.g. Home gym",
+              oninput: (e) => (session.location = e.target.value),
+            }),
+          ),
+          el("div", { class: "field" },
+            el("label", {}, "Total RPE"),
+            el("select", {
+              onchange: (e) => (session.totalRPE = e.target.value),
+            },
+              el("option", { value: "", selected: !session.totalRPE ? "" : null }, "—"),
+              ...[1,2,3,4,5,6,7,8,9,10].map((n) =>
+                el("option", { value: n, selected: String(session.totalRPE) === String(n) ? "" : null }, String(n))),
+            ),
+          ),
+        ),
+        el("div", { class: "field-row" },
+          el("div", { class: "field" },
+            el("label", {}, "Leaf status"),
+            el("select", {
+              onchange: (e) => (session.leafStatus = e.target.value),
+            },
+              el("option", { value: "No", selected: session.leafStatus !== "Yes" ? "" : null }, "No"),
+              el("option", { value: "Yes", selected: session.leafStatus === "Yes" ? "" : null }, "Yes"),
+            ),
+          ),
+          el("div", { class: "field" },
+            el("label", {}, "Session notes"),
+            el("input", {
+              type: "text", value: session.notes,
+              placeholder: "Optional",
+              oninput: (e) => (session.notes = e.target.value),
+            }),
+          ),
+        ),
+        el("button", { class: "btn primary small", onclick: saveSessionMeta }, "Save session info"),
       ),
     );
 

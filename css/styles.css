@@ -336,9 +336,14 @@ input[type="number"] {
 .exercise-picker > * { flex: 1; min-width: 160px; }
 .exercise-picker .btn { flex: 0; min-width: auto; }
 
+/* Session metadata */
+.session-meta h3 { margin-bottom: 0.75rem; }
+.session-meta .btn { margin-top: 0.5rem; }
+
 @media (max-width: 540px) {
   .topbar { grid-template-columns: 1fr auto; }
   .topbar .tabs { grid-column: 1 / -1; order: 3; padding-top: 0.4rem; }
   .set-row { grid-template-columns: 28px 1fr 1fr 1fr auto; gap: 0.3rem; }
+  .field-row.four { grid-template-columns: 1fr 1fr; }
   main { padding: 0.75rem; }
 }
