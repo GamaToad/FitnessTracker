@@ -12,7 +12,7 @@
 
 export const config = {
   // The OAuth 2.0 Client ID from the Google Cloud Console.
-  googleClientId: localStorage.getItem("rp.clientId") || "",
+  googleClientId: localStorage.getItem("rp.clientId") || "820041666281-1vie5vuipkcbh48pp53t3gc7stb2jgip.apps.googleusercontent.com",
 
   // OAuth scopes. `drive.file` is narrow — the app can only see sheets it
   // creates or that the user explicitly opens through Google Picker.
