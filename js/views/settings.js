@@ -1,0 +1,159 @@
+import { el, run, toast } from "../ui.js";
+import { config, setClientId } from "../config.js";
+import * as sheets from "../sheets.js";
+import * as data from "../data.js";
+import { MUSCLE_GROUPS } from "../rp.js";
+
+export async function render(container) {
+  container.append(el("h1", {}, "Settings"));
+
+  // Google client ID.
+  container.append(
+    el("section", { class: "card" },
+      el("h2", {}, "Google API"),
+      el("p", { class: "muted small" },
+        "Paste the OAuth Client ID from your Google Cloud project. See the README for setup."),
+      el("div", { class: "field" },
+        el("label", {}, "OAuth Client ID"),
+        el("input", {
+          type: "text",
+          id: "client-id-input",
+          value: config.googleClientId,
+          placeholder: "1234567890-abc.apps.googleusercontent.com",
+        }),
+      ),
+      el("button", {
+        class: "btn primary",
+        onclick: () => {
+          const v = document.getElementById("client-id-input").value.trim();
+          setClientId(v);
+          toast("Saved — reloading…", "ok");
+          setTimeout(() => location.reload(), 500);
+        },
+      }, "Save & reload"),
+    ),
+  );
+
+  // Spreadsheet.
+  const sheetId = sheets.getSpreadsheetId();
+  container.append(
+    el("section", { class: "card" },
+      el("h2", {}, "Data sheet"),
+      sheetId
+        ? el("div", {},
+            el("p", {},
+              "Currently using sheet ", el("code", {}, sheetId), ".",
+            ),
+            el("p", {},
+              el("a", {
+                href: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`,
+                target: "_blank", rel: "noopener",
+              }, "Open in Google Sheets"),
+            ),
+            el("div", { class: "row" },
+              el("button", {
+                class: "btn",
+                onclick: async () => {
+                  await run(sheets.ensureTabs(sheetId), { ok: "Schema verified" });
+                  data.clearCaches();
+                },
+              }, "Verify schema"),
+              el("button", {
+                class: "btn danger ghost",
+                onclick: () => {
+                  if (confirm("Forget this sheet? Data stays in your Google account but the app will need a new sheet.")) {
+                    sheets.setSpreadsheetId("");
+                    data.clearCaches();
+                    location.hash = "#/settings";
+                    location.reload();
+                  }
+                },
+              }, "Forget"),
+            ),
+          )
+        : el("div", {},
+            el("p", { class: "muted" },
+              "No sheet linked. Create a fresh workbook, or paste the ID of an existing one."),
+            el("div", { class: "row" },
+              el("button", {
+                class: "btn primary",
+                onclick: async () => {
+                  const id = await run(sheets.createWorkbook(), { ok: "Workbook created" });
+                  toast("Created — reloading…", "ok");
+                  setTimeout(() => location.reload(), 600);
+                  return id;
+                },
+              }, "Create new workbook"),
+            ),
+            el("div", { class: "field", style: { marginTop: "0.75rem" } },
+              el("label", {}, "…or paste an existing spreadsheet ID"),
+              el("div", { class: "row" },
+                el("input", { type: "text", id: "existing-sheet-id", placeholder: "spreadsheet id" }),
+                el("button", {
+                  class: "btn",
+                  onclick: async () => {
+                    const id = document.getElementById("existing-sheet-id").value.trim();
+                    if (!id) return toast("Paste an ID first", "bad");
+                    await run(sheets.ensureTabs(id), { ok: "Linked" });
+                    sheets.setSpreadsheetId(id);
+                    setTimeout(() => location.reload(), 400);
+                  },
+                }, "Link"),
+              ),
+            ),
+          ),
+    ),
+  );
+
+  // Volume landmarks editor.
+  if (sheetId) {
+    const landmarks = await data.getLandmarks();
+    const card = el("section", { class: "card" },
+      el("h2", {}, "Volume landmarks"),
+      el("p", { class: "muted small" },
+        "Weekly working sets per muscle group. RP defaults are pre-filled — adjust as you learn your own MEV and MRV."),
+    );
+    const table = el("table", { class: "meso-grid" });
+    table.append(
+      el("thead", {},
+        el("tr", {},
+          el("th", { style: { textAlign: "left" } }, "Muscle"),
+          el("th", {}, "MV"), el("th", {}, "MEV"),
+          el("th", {}, "MAV lo"), el("th", {}, "MAV hi"),
+          el("th", {}, "MRV"), el("th", {}),
+        ),
+      ),
+    );
+    const body = el("tbody", {});
+    table.append(body);
+    for (const g of MUSCLE_GROUPS) {
+      const lm = landmarks[g] || { MV: 0, MEV: 0, MAV_lo: 0, MAV_hi: 0, MRV: 0 };
+      const row = el("tr", {});
+      row.append(el("td", { class: "muscle" }, g));
+      const fields = {};
+      for (const k of ["MV", "MEV", "MAV_lo", "MAV_hi", "MRV"]) {
+        const inp = el("input", { type: "number", value: lm[k], min: 0, style: { width: "70px" } });
+        fields[k] = inp;
+        row.append(el("td", {}, inp));
+      }
+      row.append(el("td", {},
+        el("button", {
+          class: "btn small",
+          onclick: async () => {
+            await run(
+              data.saveLandmark(g, {
+                MV: +fields.MV.value, MEV: +fields.MEV.value,
+                MAV_lo: +fields.MAV_lo.value, MAV_hi: +fields.MAV_hi.value,
+                MRV: +fields.MRV.value,
+              }),
+              { ok: "Saved" },
+            );
+          },
+        }, "Save"),
+      ));
+      body.append(row);
+    }
+    card.append(table);
+    container.append(card);
+  }
+}

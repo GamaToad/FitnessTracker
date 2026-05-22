@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d10" />
+  <title>RP Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff5a1f'/%3E%3Ctext x='32' y='44' font-size='40' font-family='system-ui' font-weight='800' text-anchor='middle' fill='white'%3ERP%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./css/styles.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand">
+      <span class="brand-mark">RP</span>
+      <span class="brand-name">Tracker</span>
+    </a>
+    <nav class="tabs">
+      <a href="#/" data-route="dashboard">Home</a>
+      <a href="#/meso" data-route="meso">Meso</a>
+      <a href="#/workout" data-route="workout">Train</a>
+      <a href="#/settings" data-route="settings">Settings</a>
+    </nav>
+    <div class="auth-slot" id="auth-slot"></div>
+  </header>
+
+  <main id="view"></main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <template id="tpl-signed-out">
+    <section class="hero">
+      <h1>Train hard. Track smart.</h1>
+      <p>An RP-style hypertrophy tracker that auto-progresses volume from MEV to MRV and saves every set to your own Google Sheet.</p>
+      <button class="btn primary" id="sign-in-btn">Sign in with Google</button>
+      <p class="muted small">Your data lives in a Google Sheet you own. We never see it.</p>
+      <div class="feature-grid">
+        <div><h3>Mesocycle planner</h3><p>4–6 week blocks with auto set progression and a built-in deload.</p></div>
+        <div><h3>RIR-based logging</h3><p>Log weight, reps and reps-in-reserve. Sees last workout to prescribe overload.</p></div>
+        <div><h3>Volume landmarks</h3><p>RP defaults for MV / MEV / MAV / MRV per muscle group, fully editable.</p></div>
+      </div>
+    </section>
+  </template>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
