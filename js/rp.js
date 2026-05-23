@@ -31,7 +31,7 @@ export const DEFAULT_LANDMARKS = {
   Back: { MV: 8, MEV: 10, MAV_lo: 14, MAV_hi: 22, MRV: 25 },
   Quads: { MV: 6, MEV: 8, MAV_lo: 12, MAV_hi: 18, MRV: 20 },
   Hamstrings: { MV: 4, MEV: 6, MAV_lo: 10, MAV_hi: 16, MRV: 20 },
-  Glutes: { MV: 0, MEV: 0, MAV_lo: 4, MAV_hi: 12, MRV: 16 },
+  Glutes: { MV: 2, MEV: 4, MAV_lo: 8, MAV_hi: 12, MRV: 16 },
   "Shoulders (side delts)": { MV: 8, MEV: 8, MAV_lo: 16, MAV_hi: 22, MRV: 26 },
   "Shoulders (rear delts)": { MV: 6, MEV: 8, MAV_lo: 14, MAV_hi: 20, MRV: 24 },
   Biceps: { MV: 5, MEV: 8, MAV_lo: 14, MAV_hi: 20, MRV: 26 },

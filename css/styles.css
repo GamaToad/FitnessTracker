@@ -361,7 +361,7 @@ input[type="number"] {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.set-row input { min-height: 40px; padding: 0.3rem; }
+.set-row input { min-height: var(--tap); padding: 0.45rem 0.3rem; font-size: 1.05rem; }
 .set-row .target {
   color: var(--muted);
   font-size: 0.75rem;
@@ -930,8 +930,9 @@ input[type="number"] {
 .sparkline-cell canvas { width: 80px; height: 24px; }
 
 @media (max-width: 540px) {
-  .topbar { grid-template-columns: 1fr auto; }
-  .topbar .tabs { grid-column: 1 / -1; order: 3; padding-top: 0.4rem; }
+  .topbar { grid-template-columns: 1fr auto; gap: 0.5rem; padding: 0.4rem 0.6rem; }
+  .topbar .tabs { grid-column: 1 / -1; order: 3; padding-top: 0.25rem; }
+  .topbar .tabs a { padding: 0.35rem 0.6rem; font-size: 0.85rem; }
   .set-row { grid-template-columns: 28px 1fr 1fr 1fr auto; gap: 0.3rem; }
   .field-row.four { grid-template-columns: 1fr 1fr; }
   main { padding: 0.75rem; }

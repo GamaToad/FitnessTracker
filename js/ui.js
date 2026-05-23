@@ -8,7 +8,7 @@ export function el(tag, attrs = {}, ...children) {
     else if (k === "style" && typeof v === "object") Object.assign(node.style, v);
     else if (k.startsWith("on") && typeof v === "function") {
       node.addEventListener(k.slice(2).toLowerCase(), v);
-    else node.setAttribute(k, v);
+    } else node.setAttribute(k, v);
   }
   for (const c of children.flat()) {
     if (c == null || c === false) continue;

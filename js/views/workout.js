@@ -304,8 +304,8 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR) {
             el("div", {}, s.reps),
             el("div", {}, s.rir),
             el("div", { class: "set-actions" },
-              el("button", { class: "btn small ghost", onclick: () => { editingSetId = s.id; renderSets(); } }, "✏"),
-              el("button", { class: "btn small danger ghost", onclick: () => {
+              el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => { editingSetId = s.id; renderSets(); } }, "✏"),
+              el("button", { class: "btn small danger ghost", "aria-label": "Delete set", onclick: () => {
                 confirmModal("Delete this set?", async () => {
                   await run(data.deleteSet(s.id), { ok: "Set deleted" });
                   logged.splice(i, 1);
@@ -388,7 +388,13 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR) {
     );
     logged.push(saved);
     drafts.splice(idx, 1);
+    const remaining = Math.max(0, setTarget - logged.length - drafts.length);
+    if (remaining > 0 && !drafts.length) addDraft();
     renderSets();
+    setTimeout(() => {
+      const inputs = setsContainer.querySelectorAll(".set-row:last-of-type input");
+      if (inputs.length) inputs[0].focus();
+    }, 0);
   }
 
   if (!logged.length) addDraft();
@@ -601,8 +607,8 @@ async function renderCustomMode(root, onFinish) {
               el("div", {}, s.reps),
               el("div", {}, s.rir),
               el("div", { class: "set-actions" },
-                el("button", { class: "btn small ghost", onclick: () => { editingSetId = s.id; renderSets(); } }, "✏"),
-                el("button", { class: "btn small danger ghost", onclick: () => {
+                el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => { editingSetId = s.id; renderSets(); } }, "✏"),
+                el("button", { class: "btn small danger ghost", "aria-label": "Delete set", onclick: () => {
                   confirmModal("Delete this set?", async () => {
                     await run(data.deleteSet(s.id), { ok: "Set deleted" });
                     ex.sets.splice(i, 1);

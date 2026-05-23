@@ -123,7 +123,8 @@ export function adaptiveSuggestWeight(prev, targetReps, targetRIR, exerciseName,
     factor = 1.0;
   }
 
-  return smartRound(weight * factor, profile);
+  const result = smartRound(weight * factor, profile);
+  return Number.isFinite(result) ? result : null;
 }
 
 

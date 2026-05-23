@@ -187,8 +187,13 @@ async function withRetry(fn) {
   try {
     return await fn();
   } catch (e) {
-    if (e?.result?.error?.code === 401 || e?.status === 401) {
+    const code = e?.result?.error?.code || e?.status;
+    if (code === 401) {
       await ensureToken();
+      return await fn();
+    }
+    if (code === 429 || (code >= 500 && code < 600)) {
+      await new Promise((r) => setTimeout(r, 1500));
       return await fn();
     }
     throw e;
