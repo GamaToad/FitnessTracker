@@ -92,5 +92,7 @@ export function openExercisePicker({ exerciseLib, exclude = [], onPick }) {
   overlay.append(sheet);
   document.body.append(overlay);
   renderList();
-  search.focus();
+  // Intentionally do NOT autofocus the search box: on mobile that pops up the
+  // keyboard and hides the equipment/muscle filter chips. The user taps the
+  // search field when they actually want to type.
 }

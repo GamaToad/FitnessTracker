@@ -4,6 +4,29 @@ import { MUSCLE_GROUPS, PROGRAM_TEMPLATES, EXERCISE_SUBSTITUTES, progressSets, p
 import { navigate } from "../router.js";
 import { openExercisePicker } from "../exercise-picker.js";
 
+// Template "type" is derived from the program name (templates carry no
+// explicit category). Order is also the display order of the type chips.
+const TEMPLATE_TYPE_ORDER = [
+  "Full Body",
+  "Push / Pull / Legs",
+  "Upper / Lower",
+  "Body-Part Split",
+  "Powerbuilding / Strength",
+  "Equipment-Focused",
+  "Hybrid / Other",
+];
+
+function templateType(tpl) {
+  const n = tpl.name.toLowerCase();
+  if (/hammer strength only|cable-only|bodyweight only|dumbbell-only|machine-heavy/.test(n)) return "Equipment-Focused";
+  if (/phul|phat|5\/3\/1|gzcl|texas method|novice linear|powerbuilding/.test(n)) return "Powerbuilding / Strength";
+  if (/full body/.test(n)) return "Full Body";
+  if (/upper \/ lower|upper emphasis|lower emphasis|torso \/ limbs/.test(n)) return "Upper / Lower";
+  if (/push \/ pull \/ legs|\bppl\b|push \/ pull|legs \/ arms/.test(n)) return "Push / Pull / Legs";
+  if (/bro split|arnold|chest & back|chest & triceps|chest & arms|shoulders & arms/.test(n)) return "Body-Part Split";
+  return "Hybrid / Other";
+}
+
 function buildExerciseInput(exerciseLib, ex, onSelect) {
   const wrapper = el("div", { class: "exercise-picker-wrap" });
   const input = el("input", {
@@ -172,6 +195,9 @@ export async function renderNew(container) {
     notes: "",
   };
 
+  // Template-picker filters (persist across rerenders). "" means "All".
+  const tplFilter = { days: "", type: "" };
+
   function rerender() {
     container.replaceChildren();
     container.append(buildForm());
@@ -191,23 +217,65 @@ export async function renderNew(container) {
     wrap.append(el("h1", {}, "New mesocycle"));
 
     // Template picker
+    const dayOptions = [...new Set(PROGRAM_TEMPLATES.map((t) => t.days.length))].sort((a, b) => a - b);
+    const typeOptions = TEMPLATE_TYPE_ORDER.filter((t) =>
+      PROGRAM_TEMPLATES.some((tpl) => templateType(tpl) === t));
+
+    const grid = el("div", { class: "template-grid" });
+
+    function renderTemplateGrid() {
+      grid.replaceChildren();
+      const matches = PROGRAM_TEMPLATES.filter((tpl) =>
+        (!tplFilter.days || tpl.days.length === tplFilter.days) &&
+        (!tplFilter.type || templateType(tpl) === tplFilter.type));
+      if (!matches.length) {
+        grid.append(el("p", { class: "muted small" }, "No templates match those filters."));
+        return;
+      }
+      for (const tpl of matches) {
+        grid.append(
+          el("button", { class: "btn template-btn", onclick: () => applyTemplate(tpl) },
+            el("strong", {}, tpl.name),
+            el("span", { class: "muted small" }, `${tpl.days.length} days · ${templateType(tpl)}`),
+          ),
+        );
+      }
+    }
+
+    function filterChipRow(key, options, formatter) {
+      const row = el("div", { class: "chip-row" });
+      const mkChip = (value, text) => {
+        const chip = el("button", {
+          type: "button",
+          class: "filter-chip" + (tplFilter[key] === value ? " active" : ""),
+          onclick: () => {
+            tplFilter[key] = value;
+            for (const c of row.children) {
+              c.classList.toggle("active", c.dataset.value === String(value));
+            }
+            renderTemplateGrid();
+          },
+        }, text);
+        chip.dataset.value = String(value);
+        return chip;
+      };
+      row.append(mkChip("", "All"));
+      for (const o of options) row.append(mkChip(o, formatter(o)));
+      return row;
+    }
+
     wrap.append(
       el("section", { class: "card" },
         el("h2", {}, "Start from a template"),
         el("p", { class: "muted small" }, "Pick a program to pre-fill days and exercises, or skip and build your own below."),
-        el("div", { class: "template-grid" },
-          ...PROGRAM_TEMPLATES.map((tpl) =>
-            el("button", {
-              class: "btn template-btn",
-              onclick: () => applyTemplate(tpl),
-            },
-              el("strong", {}, tpl.name),
-              el("span", { class: "muted small" }, `${tpl.days.length} days`),
-            ),
-          ),
-        ),
+        el("div", { class: "picker-filter-label" }, "Days per week"),
+        filterChipRow("days", dayOptions, (d) => `${d}-day`),
+        el("div", { class: "picker-filter-label" }, "Type"),
+        filterChipRow("type", typeOptions, (t) => t),
+        grid,
       ),
     );
+    renderTemplateGrid();
 
     wrap.append(
       el("div", { class: "card" },
