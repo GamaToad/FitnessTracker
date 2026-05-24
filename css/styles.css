@@ -567,8 +567,9 @@ input[type="number"] {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.6rem;
+  flex: none;
 }
-.picker-search { width: 100%; margin-bottom: 0.6rem; }
+.picker-search { width: 100%; margin-bottom: 0.6rem; flex: none; }
 .picker-filter-label {
   font-size: 0.7rem;
   font-weight: 700;
@@ -576,6 +577,7 @@ input[type="number"] {
   letter-spacing: 0.06em;
   color: var(--gama-green);
   margin: 0.3rem 0;
+  flex: none;
 }
 .chip-row {
   display: flex;
@@ -583,6 +585,7 @@ input[type="number"] {
   overflow-x: auto;
   padding-bottom: 0.3rem;
   -webkit-overflow-scrolling: touch;
+  flex: none;
 }
 .filter-chip {
   flex: 0 0 auto;
@@ -605,9 +608,11 @@ input[type="number"] {
   font-size: 0.75rem;
   color: var(--muted);
   margin: 0.5rem 0 0.3rem;
+  flex: none;
 }
 .picker-list {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
