@@ -61,7 +61,7 @@ export async function render(container) {
   function openSummaryModal(mesoId, date) {
     const overlay = el("div", { class: "modal-overlay" });
     const body = el("div", {});
-    overlay.append(el("div", { class: "modal-card" }, body));
+    overlay.append(el("div", { class: "modal-card modal-summary" }, body));
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     document.body.append(overlay);
     renderSummary(body, mesoId, date, () => overlay.remove());

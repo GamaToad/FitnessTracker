@@ -927,6 +927,9 @@ input[type="number"] {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 1rem;
+  padding-top: calc(1rem + env(safe-area-inset-top, 0));
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0));
 }
 .modal-card {
   background: var(--panel);
@@ -935,7 +938,11 @@ input[type="number"] {
   padding: 1.5rem;
   max-width: 340px;
   width: 90%;
+  max-height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
+.modal-card.modal-summary { max-width: 460px; }
 .modal-card .btn-row {
   display: flex;
   gap: 0.5rem;
