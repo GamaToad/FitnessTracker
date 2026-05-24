@@ -13,6 +13,9 @@ import { el, clear, toast } from "./ui.js";
 const view = document.getElementById("view");
 const authSlot = document.getElementById("auth-slot");
 
+let lastAuthState = auth.getState();
+let syncCount = 0;
+
 function setActiveTab() {
   const hash = currentHash();
   const tab =
@@ -27,7 +30,14 @@ function setActiveTab() {
 }
 
 function renderAuth(state) {
+  lastAuthState = state;
   clear(authSlot);
+  if (syncCount > 0) {
+    authSlot.append(
+      el("span", { class: "sync-pill", title: "Logged offline — will sync when you're back online" },
+        `${syncCount} pending · will sync`),
+    );
+  }
   if (!config.googleClientId) {
     authSlot.append(
       el("a", { class: "auth-pill", href: "#/settings" },
@@ -67,7 +77,14 @@ function wrap(fn) {
       const msg = e?.result?.error?.message || e?.message || "Something went wrong";
       // If the error is auth-related, prompt to sign in instead of a
       // generic error banner.
-      if (msg === "Not signed in" || e?.result?.error?.code === 401) {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        view.append(
+          el("div", { class: "banner warn" },
+            "You're offline. Any sets you log are saved on this device and will sync when you're back online. ",
+            el("button", { class: "btn small", onclick: () => dispatch() }, "Retry"),
+          ),
+        );
+      } else if (msg === "Not signed in" || e?.result?.error?.code === 401) {
         view.append(
           el("div", { class: "banner warn" },
             "Your session expired. ",
@@ -114,8 +131,27 @@ function hideLoader() {
   setTimeout(() => loader.remove(), 400);
 }
 
+async function tryFlush() {
+  try {
+    const { sent } = await sheets.flushOutbox();
+    if (sent > 0) {
+      toast(`Synced ${sent} pending change${sent === 1 ? "" : "s"}`, "ok");
+      dispatch();
+    }
+  } catch (e) {
+    console.error("Outbox flush failed:", e);
+  }
+}
+
+window.addEventListener("online", tryFlush);
+
 (async () => {
   try {
+    // Reflect any writes queued in a previous (offline) session immediately.
+    sheets.onOutboxChange((n) => {
+      syncCount = n;
+      renderAuth(lastAuthState);
+    });
     await auth.init();
     if (auth.didSilentRestoreFail()) {
       toast("Session expired — please sign in again", "warn");
@@ -127,10 +163,12 @@ function hideLoader() {
       } catch (e) {
         console.error("Failed to ensure tabs:", e);
       }
+      tryFlush();
     }
     auth.onAuthChange((state) => {
       renderAuth(state);
       dispatch();
+      if (state.signedIn) tryFlush();
     });
     if (!location.hash) location.hash = "#/";
     dispatch();

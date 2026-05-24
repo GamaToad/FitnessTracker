@@ -12,6 +12,8 @@
     "check:autoreg": "node tools/check-autoreg.mjs",
     "check:suggest": "node tools/check-suggest.mjs",
     "check:reference": "node tools/check-reference.mjs",
-    "check:dates": "node tools/check-dates.mjs"
+    "check:dates": "node tools/check-dates.mjs",
+    "check:performance": "node tools/check-performance.mjs",
+    "check:outbox": "node tools/check-outbox.mjs"
   }
 }

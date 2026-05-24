@@ -1,5 +1,5 @@
 import { el, run, toast, withLoading, confirmModal, formatMuscle } from "../ui.js";
-import { config, setClientId, setDisplayUnit } from "../config.js";
+import { config, setClientId, setDisplayUnit, isUsingDemoClientId } from "../config.js";
 import * as sheets from "../sheets.js";
 import * as data from "../data.js";
 import { MUSCLE_GROUPS, EQUIPMENT_TYPES } from "../rp.js";
@@ -34,6 +34,10 @@ export async function render(container) {
       el("h2", {}, "Google API"),
       el("p", { class: "muted small" },
         "Paste the OAuth Client ID from your Google Cloud project. See the README for setup."),
+      isUsingDemoClientId()
+        ? el("div", { class: "banner warn" },
+            "Using the shared demo Client ID. For a private deployment, set your own — see the README.")
+        : null,
       el("div", { class: "field" },
         el("label", {}, "OAuth Client ID"),
         el("input", {

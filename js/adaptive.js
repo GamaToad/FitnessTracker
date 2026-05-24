@@ -259,6 +259,118 @@ export function fatigueCheck(muscleGroup, mesoSets, weekPlan) {
 
 
 // ═══════════════════════════════════════════════════════════════
+// PERFORMANCE vs. NORMAL
+// ═══════════════════════════════════════════════════════════════
+//
+// Answers "is today above / on par / below my normal for this lift?"
+// using Epley e1RM as a rep-scheme-agnostic performance metric. The
+// baseline ("normal") is the median of the last few session-best e1RMs,
+// which resists a single fluke or deload week.
+
+// How far from baseline counts as a meaningful swing (±2%).
+const PERF_ABOVE_RATIO = 1.02;
+const PERF_BELOW_RATIO = 0.98;
+// Sessions of baseline history needed before we'll render a verdict.
+const PERF_MIN_BASELINE_SESSIONS = 2;
+// How many recent sessions form the baseline window.
+const PERF_BASELINE_WINDOW = 3;
+
+// Best (highest) Epley e1RM across a flat set list. 0 if none usable.
+function bestE1RMOf(sets) {
+  let best = 0;
+  for (const s of sets || []) {
+    const e1 = epley1RM(+s.weight, +s.reps);
+    if (Number.isFinite(e1) && e1 > best) best = e1;
+  }
+  return best;
+}
+
+// Per-session best e1RM, chronological. Reuses session grouping.
+export function sessionBestE1RMs(sets) {
+  return groupIntoSessions(sets || [])
+    .map(bestE1RMOf)
+    .filter((v) => v > 0);
+}
+
+function median(nums) {
+  if (!nums.length) return 0;
+  const a = [...nums].sort((x, y) => x - y);
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+
+// Compare today's performance on one exercise to its recent normal.
+//   priorSets  — all sets for this exercise STRICTLY before today
+//   todaySets  — this exercise's sets logged today
+// Returns { level: "above"|"on"|"below"|"new", expectedE1RM,
+//           actualE1RM, deltaPct }.
+export function performanceVsNormal(priorSets, todaySets) {
+  const none = { level: "new", expectedE1RM: 0, actualE1RM: 0, deltaPct: 0 };
+  const actualE1RM = bestE1RMOf(todaySets);
+  if (!actualE1RM) return none;
+
+  const priorBests = sessionBestE1RMs(priorSets);
+  if (priorBests.length < PERF_MIN_BASELINE_SESSIONS) {
+    return { ...none, actualE1RM: round1(actualE1RM) };
+  }
+
+  const expectedE1RM = median(priorBests.slice(-PERF_BASELINE_WINDOW));
+  if (!expectedE1RM) return { ...none, actualE1RM: round1(actualE1RM) };
+
+  const ratio = actualE1RM / expectedE1RM;
+  const level = ratio >= PERF_ABOVE_RATIO ? "above"
+    : ratio <= PERF_BELOW_RATIO ? "below" : "on";
+
+  return {
+    level,
+    expectedE1RM: round1(expectedE1RM),
+    actualE1RM: round1(actualE1RM),
+    deltaPct: Math.round((ratio - 1) * 100),
+  };
+}
+
+// Direction of the e1RM trend over the recent baseline window.
+// Returns "rising" | "flat" | "falling" | null (not enough data).
+export function e1rmTrend(sessionBests) {
+  const w = (sessionBests || []).slice(-PERF_BASELINE_WINDOW);
+  if (w.length < 2) return null;
+  const first = w[0], last = w[w.length - 1];
+  if (!first) return null;
+  const change = (last - first) / first;
+  if (change > 0.01) return "rising";
+  if (change < -0.01) return "falling";
+  return "flat";
+}
+
+// Aggregate per-exercise performanceVsNormal results into one session
+// verdict. Ignores exercises without a baseline ("new").
+// Returns { level: "above"|"on"|"below", deltaPct, text } or null.
+export function sessionVerdict(results) {
+  const rated = (results || []).filter(
+    (r) => r && r.level !== "new" && r.expectedE1RM > 0,
+  );
+  if (!rated.length) return null;
+
+  const avgRatio = rated.reduce(
+    (sum, r) => sum + r.actualE1RM / r.expectedE1RM, 0,
+  ) / rated.length;
+
+  const level = avgRatio >= PERF_ABOVE_RATIO ? "above"
+    : avgRatio <= PERF_BELOW_RATIO ? "below" : "on";
+
+  const text = level === "above" ? "Strong session — above your normal"
+    : level === "below" ? "Below par — likely fatigue or an off day"
+    : "Right on par with your normal";
+
+  return { level, deltaPct: Math.round((avgRatio - 1) * 100), text };
+}
+
+function round1(n) {
+  return Math.round(n * 10) / 10;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // INTERNAL HELPERS
 // ═══════════════════════════════════════════════════════════════
 

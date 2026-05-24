@@ -10,9 +10,14 @@
 // No client secret is needed — this is a public single-page app using the
 // Google Identity Services token flow.
 
+// Shared demo OAuth Client ID. Used only as a convenience fallback so the app
+// works out of the box; anyone running their own deployment should set their
+// own Client ID in Settings (Settings nudges you when this default is active).
+export const DEMO_CLIENT_ID = "820041666281-1vie5vuipkcbh48pp53t3gc7stb2jgip.apps.googleusercontent.com";
+
 export const config = {
   // The OAuth 2.0 Client ID from the Google Cloud Console.
-  googleClientId: localStorage.getItem("rp.clientId") || "820041666281-1vie5vuipkcbh48pp53t3gc7stb2jgip.apps.googleusercontent.com",
+  googleClientId: localStorage.getItem("rp.clientId") || DEMO_CLIENT_ID,
 
   // OAuth scopes. `drive.file` is narrow — the app can only see sheets it
   // creates or that the user explicitly opens through Google Picker.
@@ -41,6 +46,12 @@ export const config = {
 export function setClientId(id) {
   localStorage.setItem("rp.clientId", id);
   config.googleClientId = id;
+}
+
+// True when the app is running on the bundled shared demo Client ID rather than
+// the user's own. Settings surfaces a nudge in this case.
+export function isUsingDemoClientId() {
+  return config.googleClientId === DEMO_CLIENT_ID;
 }
 
 export function setDisplayUnit(unit) {

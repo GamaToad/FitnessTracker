@@ -761,6 +761,57 @@ input[type="number"] {
   font-size: 0.85rem;
 }
 
+/* Performance vs. normal */
+.perf-pill {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.perf-above { color: var(--ok); background: rgba(57, 181, 74, 0.12); border-color: rgba(57, 181, 74, 0.35); }
+.perf-on { color: var(--muted); background: var(--panel-2); }
+.perf-below { color: var(--warn); background: rgba(246, 183, 60, 0.12); border-color: rgba(246, 183, 60, 0.35); }
+.summary-exercise .perf-pill { margin-top: 0.35rem; }
+
+.verdict-banner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  border: 1px solid var(--line);
+  animation: verdict-in 0.35s ease-out both;
+}
+.verdict-text { font-size: 0.95rem; }
+.verdict-delta { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.verdict-above { color: var(--ok); background: rgba(57, 181, 74, 0.1); border-color: rgba(57, 181, 74, 0.3); }
+.verdict-on { color: var(--text); background: var(--panel-2); }
+.verdict-below { color: var(--warn); background: rgba(246, 183, 60, 0.1); border-color: rgba(246, 183, 60, 0.3); }
+@keyframes verdict-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Pending-sync indicator (offline write queue) */
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--warn);
+  background: rgba(246, 183, 60, 0.12);
+  border: 1px solid rgba(246, 183, 60, 0.35);
+  white-space: nowrap;
+}
+
 /* Workout summary */
 .workout-summary { text-align: center; }
 .workout-summary h2 { margin-bottom: 1rem; }

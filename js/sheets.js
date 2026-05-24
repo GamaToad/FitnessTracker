@@ -1,6 +1,29 @@
 import { config } from "./config.js";
 import { ensureToken } from "./auth.js";
 import { toIsoDate } from "./dates.js";
+import { QUEUEABLE, enqueue, peekRows, pendingCount, drain } from "./outbox.js";
+
+// UI subscriber for the pending-sync count (set by app.js).
+let outboxListener = null;
+export function onOutboxChange(cb) {
+  outboxListener = cb;
+  if (cb) cb(pendingCount());
+}
+function notifyOutbox() {
+  if (outboxListener) outboxListener(pendingCount());
+}
+
+function isOffline() {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+// A thrown Sheets error with no HTTP status is a transport/connectivity
+// failure (as opposed to 4xx/5xx, which carry a code).
+function isNetworkError(e) {
+  if (isOffline()) return true;
+  const code = e?.result?.error?.code || e?.status;
+  return !code;
+}
 
 // Thin wrapper around the Google Sheets v4 REST API via gapi.client.
 // Persists a single spreadsheet ID in localStorage so the app finds the
@@ -221,7 +244,29 @@ function parseRows(result, key) {
     });
 }
 
-// Read all rows of a tab as objects keyed by header name.
+// Queued (not-yet-synced) rows for a tab as header-keyed objects, excluding
+// any whose id already appears in `existing` (so a replayed-but-already-written
+// row isn't shown twice).
+function mergedQueuedRows(key, existing) {
+  if (!QUEUEABLE.has(key)) return [];
+  const headers = tab(key).headers;
+  const seen = new Set(existing.map((r) => r.id).filter(Boolean));
+  const out = [];
+  for (const row of peekRows(key)) {
+    const obj = {};
+    headers.forEach((h, i) => {
+      const v = row[i] ?? "";
+      obj[h] = h === "date" ? toIsoDate(v) : v;
+    });
+    if (obj.id && seen.has(obj.id)) continue;
+    if (obj.id) seen.add(obj.id);
+    out.push(obj);
+  }
+  return out;
+}
+
+// Read all rows of a tab as objects keyed by header name. Pending offline
+// writes for queueable tabs are merged in so reads reflect them.
 export async function readAll(key) {
   await ensureToken();
   const id = getSpreadsheetId();
@@ -234,7 +279,8 @@ export async function readAll(key) {
         range: `${t.title}`,
       }),
     );
-    return parseRows(r.result, key);
+    const rows = parseRows(r.result, key);
+    return [...rows, ...mergedQueuedRows(key, rows)];
   } catch (e) {
     if (e?.result?.error?.code === 400) return [];
     throw e;
@@ -250,14 +296,12 @@ function rowFromObject(key, obj) {
   });
 }
 
-export async function appendRow(key, row) {
-  await ensureToken();
-  const id = getSpreadsheetId();
+// Raw append of pre-built row values (2D array) to a tab.
+async function sendAppend(key, values) {
   const t = tab(key);
-  const values = Array.isArray(row) ? [row] : [rowFromObject(key, row)];
   return withRetry(() =>
     api().spreadsheets.values.append({
-      spreadsheetId: id,
+      spreadsheetId: getSpreadsheetId(),
       range: `${t.title}!A1`,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
@@ -266,23 +310,54 @@ export async function appendRow(key, row) {
   );
 }
 
+// Append, or queue offline. For queueable (append-only) tabs, a connectivity
+// failure enqueues the rows and resolves optimistically so the in-memory UI
+// stays consistent and the write is replayed later. Other tabs are unchanged.
+async function appendOrQueue(key, values) {
+  const queueable = QUEUEABLE.has(key);
+  if (queueable && isOffline()) {
+    enqueue(key, values);
+    notifyOutbox();
+    return { queued: true };
+  }
+  await ensureToken();
+  try {
+    return await sendAppend(key, values);
+  } catch (e) {
+    if (queueable && isNetworkError(e)) {
+      enqueue(key, values);
+      notifyOutbox();
+      return { queued: true };
+    }
+    throw e;
+  }
+}
+
+export async function appendRow(key, row) {
+  const values = [Array.isArray(row) ? row : rowFromObject(key, row)];
+  return appendOrQueue(key, values);
+}
+
 export async function appendRows(key, rows) {
   if (!rows.length) return;
-  await ensureToken();
-  const id = getSpreadsheetId();
-  const t = tab(key);
-  const values = rows.map((r) =>
-    Array.isArray(r) ? r : rowFromObject(key, r),
-  );
-  return withRetry(() =>
-    api().spreadsheets.values.append({
-      spreadsheetId: id,
-      range: `${t.title}!A1`,
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "INSERT_ROWS",
-      resource: { values },
-    }),
-  );
+  const values = rows.map((r) => (Array.isArray(r) ? r : rowFromObject(key, r)));
+  return appendOrQueue(key, values);
+}
+
+// Replay queued writes in order. Safe to call repeatedly; no-op when offline,
+// signed out, or empty. Returns { sent, remaining }.
+export async function flushOutbox() {
+  if (!getSpreadsheetId() || isOffline() || !pendingCount()) {
+    return { sent: 0, remaining: pendingCount() };
+  }
+  try {
+    await ensureToken();
+  } catch {
+    return { sent: 0, remaining: pendingCount() };
+  }
+  const res = await drain((key, values) => sendAppend(key, values));
+  notifyOutbox();
+  return res;
 }
 
 // Overwrite a tab's contents (keeps header).
