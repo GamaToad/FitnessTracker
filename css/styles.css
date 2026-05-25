@@ -475,45 +475,115 @@ input[type="number"] {
 }
 .rest-timer-actions { display: flex; gap: 0.3rem; margin-left: auto; }
 
-/* Focused set-logging control pad */
-.focus-pad {
+/* Set controller (sticky logging hub) */
+.set-controller {
   position: fixed;
   left: 50%;
-  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
-  transform: translateX(-50%) translateY(160%);
+  bottom: calc(0.5rem + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%) translateY(180%);
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: 560px;
-  width: calc(100% - 1.5rem);
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: 600px;
+  width: calc(100% - 1rem);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius);
+  padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom, 0));
   box-shadow: var(--shadow);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s, transform 0.2s;
   z-index: 90;
 }
-.focus-pad.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
-.focus-pad .btn.icon { min-width: 40px; min-height: 40px; font-size: 1.1rem; }
-.focus-pad-stepper, .focus-pad-value-btns, .focus-pad-nav { display: flex; align-items: center; gap: 0.3rem; }
-.focus-pad-readout {
+.set-controller.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.sc-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: nowrap; }
+.set-controller .btn.icon { min-width: 38px; min-height: 38px; font-size: 1.05rem; flex: none; }
+.sc-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+.sc-progress { flex: none; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.sc-readout {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 4.5ch;
+  flex: 1 1 auto;
+  min-width: 0;
   line-height: 1.05;
 }
-.focus-pad-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-.focus-pad-value { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.15rem; }
-.focus-pad-nav { margin-left: auto; }
-.focus-pad.idle .focus-pad-readout { opacity: 0.5; }
-/* Lift the rest timer above the pad when both are visible. */
-body:has(.focus-pad.show) .rest-timer-bar { bottom: calc(4.5rem + env(safe-area-inset-bottom, 0)); }
+.sc-field-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.sc-value {
+  width: 5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 0.15rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+.sc-context { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.sc-type { flex: none; min-width: 44px; }
+.sc-log { flex: none; }
+.set-controller.idle .sc-readout, .set-controller.idle .sc-progress { opacity: 0.45; }
+/* Exercise dropdown */
+.sc-dropdown {
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+.sc-dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.sc-dropdown-item:last-child { border-bottom: none; }
+.sc-dropdown-item.active { background: var(--panel-2); }
+/* Expanded info panel */
+.sc-panel { display: none; }
+.set-controller.expanded .sc-panel {
+  display: block;
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+.sc-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+.sc-lines > div { margin-bottom: 0.3rem; }
+.sc-legend > div { margin: 0.15rem 0; }
+/* Card set-status rows */
+.set-row.set-status { grid-template-columns: 1.4rem 1.6rem 1fr auto; align-items: center; }
+.set-row.set-draft { cursor: pointer; }
+.set-row.set-draft.active { background: var(--panel-2); border-radius: var(--radius-sm); }
+.sc-dot { text-align: center; font-size: 0.9rem; color: var(--muted); }
+.set-row.set-done .sc-dot { color: var(--ok); }
+.set-row.set-draft.active .sc-dot { color: var(--accent); }
+.sc-setval { font-variant-numeric: tabular-nums; }
+/* Reserve space so the fixed controller never covers the last card. */
+body:has(.set-controller.show) main { padding-bottom: 7rem; }
+/* Lift the rest timer above the controller when both are visible. */
+body:has(.set-controller.show) .rest-timer-bar { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0)); }
 
 /* Banner */
 .banner {

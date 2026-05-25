@@ -3,7 +3,7 @@ import * as data from "../data.js";
 import { CUSTOM_MESO_ID } from "../data.js";
 import { distributeSets, suggestSetAdjustment, WORKOUT_PRESETS, MUSCLE_REFERENCE, MUSCLE_REGIONS, restSecondsFor } from "../rp.js";
 import { startRest } from "../timer.js";
-import { showFocusPad, hideFocusPad } from "../focuspad.js";
+import { setControllerExercises, setActiveExercise, refreshSetController, hideSetController, firstIncomplete } from "../setcontroller.js";
 import { suggestForGroups, sessionZone } from "../suggest.js";
 import { openExercisePicker } from "../exercise-picker.js";
 import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
@@ -20,23 +20,6 @@ import { planExercise } from "../warmup.js";
 const SET_TYPES = ["working", "warmup", "drop", "myorep", "failure"];
 const SET_TYPE_LABEL = { working: "Work", warmup: "Warm", drop: "Drop", myorep: "Myo", failure: "Fail" };
 const countsAsWorking = (t) => (t || "working") !== "warmup";
-
-// A small button that cycles a draft row's set type in place (no re-render, so
-// input focus is preserved). Mutates `draft.setType`.
-function setTypeButton(draft) {
-  if (!draft.setType) draft.setType = "working";
-  const btn = el("button", { type: "button", class: "btn small ghost set-type-btn", title: "Set type (tap to cycle)" });
-  const paint = () => {
-    btn.textContent = SET_TYPE_LABEL[draft.setType];
-    btn.classList.toggle("warmup", draft.setType === "warmup");
-  };
-  btn.onclick = () => {
-    draft.setType = SET_TYPES[(SET_TYPES.indexOf(draft.setType) + 1) % SET_TYPES.length];
-    paint();
-  };
-  paint();
-  return btn;
-}
 
 // Small static tag shown on a logged non-working set (null for working sets).
 function setTypeTag(setType) {
@@ -306,7 +289,7 @@ export async function render(container) {
 
   async function fullRender() {
     root.replaceChildren();
-    hideFocusPad();
+    hideSetController();
 
     if (summaryMode) {
       const mesoId = mode === "meso" ? active.id : CUSTOM_MESO_ID;
@@ -343,10 +326,8 @@ export async function render(container) {
         return;
       }
       await renderMesoMode(root, active, onFinish);
-      showFocusPad("meso");
     } else {
       await renderCustomMode(root, onFinish);
-      showFocusPad("custom");
     }
   }
 
@@ -586,12 +567,16 @@ async function renderSession(container, meso, week, day) {
     ),
   );
 
+  const ctxList = [];
   for (const ex of day.exercises) {
     const setTarget = dayShareForExercise.get(ex.exercise + "|" + ex.index) || 0;
     const equipment = eqMap.get((ex.exercise || "").toLowerCase()) || "";
-    const block = await renderExercise(meso, week, day, ex, setTarget, targetRIRForGroup(ex.muscleGroup), equipment);
+    const { block, ctx } = await renderExercise(meso, week, day, ex, setTarget, targetRIRForGroup(ex.muscleGroup), equipment);
     container.append(block);
+    ctxList.push(ctx);
   }
+  setControllerExercises(ctxList, "meso");
+  setActiveExercise(firstIncomplete() || ctxList[0]);
 }
 
 async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipment = "") {
@@ -612,59 +597,15 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
     : null;
 
   let editingSetId = null;
+  let editTemp = null;
+  let activeDraftIndex = 0;
 
-  const block = el("div", { class: "exercise-block" });
-  block.append(
-    el("div", { class: "exercise-head" },
-      el("div", {},
-        el("h3", {}, ex.exercise),
-        el("div", { class: "exercise-meta" },
-          el("span", { class: "pill" }, ex.muscleGroup),
-          setTarget ? el("span", { class: "pill" }, `${setTarget} working sets`) : null,
-          el("span", { class: "pill" }, `${analysis.repRange.label} reps`),
-          el("span", { class: "pill" }, `${analysis.rest.label} rest`),
-          el("span", { class: "pill" }, `${targetRIR} RIR`),
-          analysis.confidence !== "new"
-            ? el("span", { class: "pill" }, `↑ ${analysis.progression.label}/session`)
-            : null,
-          perDB ? el("span", { class: "pill" }, "per dumbbell") : null,
-        ),
-      ),
-    ),
-  );
-
-  if (analysis.fatigueWarning) {
-    block.append(
-      el("div", { class: "banner warning" }, `⚠️ ${analysis.fatigueWarning}`),
-    );
-  }
-
-  if (prev) {
-    block.append(
-      el("div", { class: "muted small", style: { marginBottom: "0.5rem" } },
-        `Last session: ${toDisplay(prev.weight)} ${unitLabel()} × ${prev.reps} @ ${prev.rir} RIR`,
-        suggested ? ` · suggested ${toDisplay(suggested)} ${unitLabel()} ` : " ",
-        el("a", { class: "small", href: `#/insights/${encodeURIComponent(ex.exercise)}` }, "Why?"),
-      ),
-    );
-  } else {
-    block.append(
-      el("div", { class: "muted small", style: { marginBottom: "0.5rem" } },
-        "First time logging this exercise in this meso."),
-    );
-  }
-
-  // Est. 1RM + trend (from sessions before today), shown once we have a max.
+  // Used by the controller's expandable info panel (built lazily).
   const today = isoToday();
   const priorSets = history.filter((s) => s.date < today);
-  if (analysis.estimatedMax > 0) {
-    const trend = e1rmTrend(sessionBestE1RMs(priorSets));
-    const arrow = trend === "rising" ? " ↗" : trend === "falling" ? " ↘" : trend === "flat" ? " →" : "";
-    block.append(
-      el("div", { class: "muted small", style: { marginBottom: "0.5rem" } },
-        `Est. 1RM ~${toDisplay(analysis.estimatedMax)} ${unitLabel()}${arrow}`),
-    );
-  }
+
+  const block = el("div", { class: "exercise-block" });
+  block.append(el("div", { class: "exercise-head" }, el("h3", {}, ex.exercise)));
 
   const setsContainer = el("div", {});
   const drafts = [];
@@ -697,7 +638,9 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
     pushDrafts(res.sets);
     errorsContainer.replaceChildren(buildUnparsedPanel(res.errors, pushDrafts, renderSets));
     quickInput.value = "";
+    if (res.sets.length) { editingSetId = null; editTemp = null; activeDraftIndex = Math.max(0, drafts.length - res.sets.length); }
     renderSets();
+    refreshSetController();
   }
   quickInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); applyQuick(); }
@@ -712,118 +655,119 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
       defaultReps: analysis.repRange.min,
       defaultRIR: targetRIR,
       onGenerate: ({ warmups, working }) => {
+        const before = drafts.length;
         for (const s of warmups) drafts.push({ weight: String(s.weight), reps: String(s.reps), rir: "", setType: "warmup" });
         for (const s of working) drafts.push({ weight: s.weight === "" ? "" : String(s.weight), reps: String(s.reps), rir: String(s.rir), setType: "working" });
+        editingSetId = null; editTemp = null; activeDraftIndex = Math.min(before, drafts.length - 1);
         renderSets();
+        refreshSetController();
       },
     });
   }
-  block.append(
-    el("div", { class: "row", style: { gap: "0.4rem", marginBottom: "0.5rem" } },
+  block.append(setsContainer);
+
+  // The exercise metadata + quick-add/Plan/Plates, relocated into the
+  // controller's expandable panel. Reuses the persistent quickInput +
+  // errorsContainer so parse state survives repaints.
+  function buildExercisePanel() {
+    const meta = el("div", { class: "exercise-meta" },
+      el("span", { class: "pill" }, ex.muscleGroup),
+      setTarget ? el("span", { class: "pill" }, `${setTarget} working sets`) : null,
+      el("span", { class: "pill" }, `${analysis.repRange.label} reps`),
+      el("span", { class: "pill" }, `${analysis.rest.label} rest`),
+      el("span", { class: "pill" }, `${targetRIR} RIR`),
+      analysis.confidence !== "new" ? el("span", { class: "pill" }, `↑ ${analysis.progression.label}/session`) : null,
+      perDB ? el("span", { class: "pill" }, "per dumbbell") : null,
+    );
+    const lines = el("div", { class: "sc-lines" });
+    if (analysis.fatigueWarning) lines.append(el("div", { class: "banner warning" }, `⚠️ ${analysis.fatigueWarning}`));
+    if (prev) {
+      lines.append(el("div", { class: "muted small" },
+        `Last: ${toDisplay(prev.weight)} ${unitLabel()} × ${prev.reps} @ ${prev.rir} RIR`,
+        suggested ? ` · suggested ${toDisplay(suggested)} ${unitLabel()} ` : " ",
+        el("a", { class: "small", href: `#/insights/${encodeURIComponent(ex.exercise)}` }, "Why?")));
+    } else {
+      lines.append(el("div", { class: "muted small" }, "First time logging this exercise in this meso."));
+    }
+    if (analysis.estimatedMax > 0) {
+      const trend = e1rmTrend(sessionBestE1RMs(priorSets));
+      const arrow = trend === "rising" ? " ↗" : trend === "falling" ? " ↘" : trend === "flat" ? " →" : "";
+      lines.append(el("div", { class: "muted small" }, `Est. 1RM ~${toDisplay(analysis.estimatedMax)} ${unitLabel()}${arrow}`));
+    }
+    const actions = el("div", { class: "row", style: { gap: "0.4rem", marginTop: "0.4rem" } },
       quickInput,
       el("button", { class: "btn small", onclick: applyQuick }, "Parse"),
       el("button", { type: "button", class: "btn small ghost", title: "Plan warm-ups + working sets", onclick: openPlanner }, "Plan"),
       el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(suggestedDisplay) }, "Plates"),
-    ),
-    errorsContainer,
-    setsContainer,
-  );
+    );
+    return el("div", {}, meta, lines, errorsContainer, actions);
+  }
+
+  const progress = () => {
+    const loggedWorking = logged.filter((s) => countsAsWorking(s.setType)).length;
+    const draftsWorking = drafts.filter((d) => countsAsWorking(d.setType)).length;
+    return { done: loggedWorking, target: setTarget, remaining: Math.max(0, setTarget - loggedWorking - draftsWorking) };
+  };
+
+  function selectDraft(i) {
+    editingSetId = null; editTemp = null;
+    activeDraftIndex = Math.max(0, Math.min(i, drafts.length - 1));
+    renderSets(); refreshSetController();
+  }
+  function editLogged(id) {
+    const s = logged.find((x) => x.id === id);
+    if (!s) return;
+    editingSetId = id;
+    editTemp = { weight: String(toDisplay(s.weight)), reps: String(s.reps), rir: String(s.rir) };
+    setActiveExercise(ctx);
+    renderSets(); refreshSetController();
+  }
+  function deleteLogged(id) {
+    confirmModal("Delete this set?", async () => {
+      await run(data.deleteSet(id), { ok: "Set deleted" });
+      const i = logged.findIndex((x) => x.id === id);
+      if (i >= 0) logged.splice(i, 1);
+      if (editingSetId === id) { editingSetId = null; editTemp = null; }
+      renderSets(); refreshSetController();
+    });
+  }
 
   function renderSets() {
     setsContainer.replaceChildren();
-    setsContainer.append(
-      el("div", { class: "set-row", style: { color: "var(--muted)", fontSize: "0.75rem" } },
-        el("div", {}, "#"),
-        el("div", {}, `Weight (${unitLabel()}${perDB ? ", per DB" : ""})`),
-        el("div", {}, "Reps"),
-        el("div", {}, "RIR"),
-        el("div", {}, ""),
-      ),
-    );
-
     logged.forEach((s, i) => {
-      if (editingSetId === s.id) {
-        const ed = { weight: toDisplay(s.weight), reps: s.reps, rir: s.rir };
-        const saveBtn = el("button", { class: "btn small primary" }, "Save");
-        const cancelBtn = el("button", { class: "btn small" }, "Cancel");
-        cancelBtn.onclick = () => { editingSetId = null; renderSets(); };
-        saveBtn.onclick = withLoading(saveBtn, async () => {
-          const weightLbs = fromDisplay(ed.weight);
-          await run(data.updateSet(s.id, { weight: weightLbs, reps: ed.reps, rir: ed.rir }), { ok: "Updated" });
-          s.weight = weightLbs; s.reps = ed.reps; s.rir = ed.rir;
-          editingSetId = null;
-          renderSets();
-        });
-        setsContainer.append(
-          el("div", { class: "set-row editing" },
-            el("div", { class: "idx" }, i + 1),
-            el("input", { type: "number", inputmode: "decimal", step: "0.5", "data-field": "weight", value: ed.weight, oninput: (e) => (ed.weight = e.target.value) }),
-            el("input", { type: "number", inputmode: "numeric", "data-field": "reps", value: ed.reps, oninput: (e) => (ed.reps = e.target.value) }),
-            el("input", { type: "number", inputmode: "numeric", min: "0", max: "10", "data-field": "rir", value: ed.rir, oninput: (e) => (ed.rir = e.target.value) }),
-            el("div", { class: "set-actions" }, saveBtn, cancelBtn),
-          ),
-        );
-      } else {
-        setsContainer.append(
-          el("div", { class: "set-row set-done" + (s.setType === "warmup" ? " set-warmup" : "") },
-            el("div", { class: "idx" }, i + 1),
-            el("div", {}, toDisplay(s.weight)),
-            el("div", {}, s.reps),
-            el("div", {}, s.rir),
-            el("div", { class: "set-actions" },
-              setTypeTag(s.setType),
-              el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => { editingSetId = s.id; renderSets(); } }, "✏"),
-              el("button", { class: "btn small danger ghost", "aria-label": "Delete set", onclick: () => {
-                confirmModal("Delete this set?", async () => {
-                  await run(data.deleteSet(s.id), { ok: "Set deleted" });
-                  logged.splice(i, 1);
-                  renderSets();
-                });
-              } }, "×"),
-            ),
-          ),
-        );
-      }
-    });
-
-    drafts.forEach((d, i) => {
-      const setNo = logged.length + i + 1;
-      const logBtn = el("button", { class: "btn small primary" }, "Log");
-      logBtn.onclick = withLoading(logBtn, () => saveDraft(i));
       setsContainer.append(
-        el("div", { class: "set-row" },
-          el("div", { class: "idx" }, setNo),
-          el("input", {
-            type: "number", inputmode: "decimal", step: "0.5", "data-field": "weight",
-            placeholder: suggestedDisplay || "wt",
-            value: d.weight,
-            oninput: (e) => (d.weight = e.target.value),
-          }),
-          el("input", {
-            type: "number", inputmode: "numeric", "data-field": "reps",
-            placeholder: prev?.reps || "reps",
-            value: d.reps,
-            oninput: (e) => (d.reps = e.target.value),
-          }),
-          el("input", {
-            type: "number", inputmode: "numeric", min: "0", max: "10", "data-field": "rir",
-            placeholder: targetRIR,
-            value: d.rir,
-            oninput: (e) => (d.rir = e.target.value),
-          }),
-          el("div", { class: "set-actions" }, setTypeButton(d), logBtn),
+        el("div", { class: "set-row set-status set-done" + (editingSetId === s.id ? " editing" : "") + (s.setType === "warmup" ? " set-warmup" : "") },
+          el("div", { class: "sc-dot" }, "✓"),
+          el("div", { class: "idx" }, i + 1),
+          el("div", { class: "sc-setval" }, `${toDisplay(s.weight)} × ${s.reps} @ ${s.rir}`),
+          el("div", { class: "set-actions" },
+            setTypeTag(s.setType),
+            el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => editLogged(s.id) }, "✏"),
+            el("button", { class: "btn small danger ghost", "aria-label": "Delete set", onclick: () => deleteLogged(s.id) }, "×"),
+          ),
         ),
       );
     });
-
-    const loggedWorking = logged.filter((s) => countsAsWorking(s.setType)).length;
-    const draftsWorking = drafts.filter((d) => countsAsWorking(d.setType)).length;
-    const remaining = Math.max(0, setTarget - loggedWorking - draftsWorking);
+    drafts.forEach((d, i) => {
+      const active = !editingSetId && i === activeDraftIndex;
+      const vals = (d.weight || d.reps || d.rir)
+        ? `${d.weight || "–"} × ${d.reps || "–"} @ ${d.rir || "–"}`
+        : "—";
+      setsContainer.append(
+        el("div", { class: "set-row set-status set-draft" + (active ? " active" : ""), onclick: () => selectDraft(i) },
+          el("div", { class: "sc-dot" }, active ? "●" : "○"),
+          el("div", { class: "idx" }, logged.length + i + 1),
+          el("div", { class: "sc-setval" }, vals),
+          el("div", { class: "set-actions" }, setTypeTag(d.setType)),
+        ),
+      );
+    });
+    const { remaining } = progress();
     setsContainer.append(
-      el("div", { class: "row", style: { marginTop: "0.6rem", justifyContent: "space-between" } },
-        el("button", { class: "btn small", onclick: addDraft }, "+ Add set"),
+      el("div", { class: "row", style: { marginTop: "0.5rem", justifyContent: "space-between" } },
+        el("button", { class: "btn small", onclick: () => { addDraft(); selectDraft(drafts.length - 1); } }, "+ Add set"),
         el("span", { class: "muted small" },
-          remaining > 0 ? `${remaining} target set${remaining === 1 ? "" : "s"} remaining` : "Target met",
+          setTarget ? (remaining > 0 ? `${remaining} target set${remaining === 1 ? "" : "s"} remaining` : "Target met") : "",
         ),
       ),
     );
@@ -860,21 +804,56 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
     logged.push(saved);
     if (saved.setType !== "warmup") startRest(restSecondsFor(ex.muscleGroup));
     drafts.splice(idx, 1);
-    const loggedWorking = logged.filter((s) => countsAsWorking(s.setType)).length;
-    const draftsWorking = drafts.filter((d) => countsAsWorking(d.setType)).length;
-    const remaining = Math.max(0, setTarget - loggedWorking - draftsWorking);
-    if (remaining > 0 && !drafts.length) addDraft();
+    if (progress().remaining > 0 && !drafts.length) addDraft();
+    activeDraftIndex = drafts.length ? Math.min(idx, drafts.length - 1) : 0;
     renderSets();
-    setTimeout(() => {
-      const inputs = setsContainer.querySelectorAll(".set-row:last-of-type input");
-      if (inputs.length) inputs[0].focus();
-    }, 0);
+    refreshSetController();
   }
 
-  if (!logged.length) addDraft();
+  // Active set the controller edits: a logged set's temp copy when editing,
+  // else the current draft.
+  const cur = () => (editingSetId ? editTemp : (drafts[activeDraftIndex] || null));
+
+  const ctx = {
+    id: ex.exercise + "|" + ex.index,
+    name: ex.exercise,
+    cardEl: block,
+    hasTarget: setTarget > 0,
+    progress,
+    isEditing: () => !!editingSetId,
+    activeLabel: () => editingSetId ? `Edit set ${logged.findIndex((s) => s.id === editingSetId) + 1}` : "",
+    field: (f) => { const c = cur(); return c ? String(c[f] ?? "") : ""; },
+    setField: (f, v) => { const c = cur(); if (!c) return; c[f] = v; renderSets(); },
+    seedFor: (f) => {
+      if (f === "weight") return suggestedDisplay || (prev?.weight ? String(toDisplay(prev.weight)) : "");
+      if (f === "reps") return prev?.reps != null ? String(prev.reps) : String(analysis.repRange.min);
+      return String(targetRIR);
+    },
+    typeLabel: () => { const c = cur(); if (!c || editingSetId) return null; return SET_TYPE_LABEL[c.setType || "working"]; },
+    cycleType: () => { const c = cur(); if (!c || editingSetId) return; c.setType = SET_TYPES[(SET_TYPES.indexOf(c.setType || "working") + 1) % SET_TYPES.length]; renderSets(); },
+    canLog: () => { const c = cur(); return !!(c && c.weight && c.reps); },
+    commit: async () => {
+      if (editingSetId) {
+        const id = editingSetId;
+        const s = logged.find((x) => x.id === id);
+        const weightLbs = fromDisplay(editTemp.weight);
+        await run(data.updateSet(id, { weight: weightLbs, reps: +editTemp.reps, rir: +editTemp.rir }), { ok: "Updated" });
+        if (s) { s.weight = weightLbs; s.reps = +editTemp.reps; s.rir = +editTemp.rir; }
+        editingSetId = null; editTemp = null;
+        renderSets();
+      } else {
+        await saveDraft(activeDraftIndex);
+      }
+    },
+    addSet: () => { addDraft(); editingSetId = null; editTemp = null; activeDraftIndex = drafts.length - 1; renderSets(); },
+    buildPanel: buildExercisePanel,
+    onDeactivate: () => { if (editingSetId) { editingSetId = null; editTemp = null; renderSets(); } },
+  };
+
+  if (!logged.length && setTarget > 0) addDraft();
   else renderSets();
 
-  return block;
+  return { block, ctx };
 }
 
 // ── Custom mode ──
@@ -946,6 +925,7 @@ async function renderCustomMode(root, onFinish) {
   // Chunks from the most recent quick-log that couldn't be parsed, kept in
   // state so the resolution panel survives a full rerender().
   let pendingParse = null; // { exerciseName, errors:[{segment,reason}] }
+  let prevExCount = 0;     // tracks added exercises so the controller auto-selects the new one
 
   const toUnsaved = (set) => ({
     weight: set.weight != null ? String(set.weight) : "",
@@ -1140,12 +1120,21 @@ async function renderCustomMode(root, onFinish) {
     if (!exercises.length) {
       customRoot.append(el("p", { class: "muted" }, "Add exercises above to start logging."));
       renderCoverage();
+      setControllerExercises([], "custom");
+      prevExCount = 0;
       return;
     }
 
+    const ctxList = [];
     for (const ex of exercises) {
-      customRoot.append(buildCustomBlock(ex, refreshLive));
+      const { block, ctx } = buildCustomBlock(ex, refreshLive);
+      customRoot.append(block);
+      ctxList.push(ctx);
     }
+    const grew = exercises.length > prevExCount;
+    prevExCount = exercises.length;
+    setControllerExercises(ctxList, "custom");
+    if (grew) setActiveExercise(ctxList[ctxList.length - 1]);
 
     customRoot.append(feedbackContainer);
     refreshLive();
@@ -1170,46 +1159,24 @@ async function renderCustomMode(root, onFinish) {
 
   function buildCustomBlock(ex, refreshLive) {
     let editingSetId = null;
+    let editTemp = null;
+    let activeIndex = -1;
     const equipment = exerciseLib.find((e) => normalizeName(e.name) === normalizeName(ex.exercise))?.equipment || "";
     const perDB = isDumbbell(equipment);
-    const block = el("div", { class: "exercise-block" });
-    block.append(
-      el("div", { class: "exercise-head" },
-        el("div", {},
-          el("h3", {}, ex.exercise),
-          el("div", { class: "exercise-meta" },
-            el("span", { class: "pill" }, formatMuscle(ex.muscleGroup)),
-            perDB ? el("span", { class: "pill" }, "per dumbbell") : null,
-            MUSCLE_REFERENCE[ex.muscleGroup]
-              ? el("span", { class: "muted small" }, `${MUSCLE_REFERENCE[ex.muscleGroup].repRange} reps · ${MUSCLE_REFERENCE[ex.muscleGroup].rest} rest`)
-              : null,
-          ),
-        ),
-        el("button", {
-          class: "btn small danger ghost",
-          onclick: () => {
-            exercises.splice(exercises.indexOf(ex), 1);
-            rerender();
-          },
-        }, "Remove"),
-      ),
-    );
-
-    // Est. 1RM + trend from sessions before today.
     const today = isoToday();
     const priorSets = allSets.filter((s) => s.exercise === ex.exercise && s.date < today);
     const priorBests = sessionBestE1RMs(priorSets);
     const estMax = priorBests.length ? Math.max(...priorBests) : 0;
-    if (estMax > 0) {
-      const trend = e1rmTrend(priorBests);
-      const arrow = trend === "rising" ? " ↗" : trend === "falling" ? " ↘" : trend === "flat" ? " →" : "";
-      block.append(
-        el("div", { class: "muted small", style: { marginBottom: "0.5rem" } },
-          `Est. 1RM ~${toDisplay(Math.round(estMax * 10) / 10)} ${unitLabel()}${arrow}`),
-      );
-    }
 
+    const block = el("div", { class: "exercise-block" });
+    block.append(
+      el("div", { class: "exercise-head" },
+        el("h3", {}, ex.exercise),
+        el("button", { class: "btn small danger ghost", onclick: () => { exercises.splice(exercises.indexOf(ex), 1); rerender(); } }, "Remove"),
+      ),
+    );
     const setsContainer = el("div", {});
+    block.append(setsContainer);
 
     // Quick add for an exercise already in the list: set-only shorthand fills
     // unsaved rows for review (any leading name in the text is ignored here).
@@ -1219,20 +1186,21 @@ async function renderCustomMode(root, onFinish) {
       style: { flex: "1" },
     });
     const blockErrors = el("div", {});
-    const pushBlock = (sets) => {
-      for (const set of sets) ex.sets.push(toUnsaved(set));
-    };
+    const pushBlock = (sets) => { for (const set of sets) ex.sets.push(toUnsaved(set)); };
     const lastSavedWeightLbs = () => {
       const last = ex.sets.filter((s) => s.saved).pop();
       return last ? +last.weight : null;
     };
+    const firstUnsaved = () => ex.sets.findIndex((s) => !s.saved);
     function applyBlockQuick() {
       const res = parseSets(blockQuick.value);
       if (!res.sets.length && !res.errors.length) return toast("Nothing to parse", "bad");
       pushBlock(res.sets);
       blockErrors.replaceChildren(buildUnparsedPanel(res.errors, pushBlock, renderSets));
       blockQuick.value = "";
+      editingSetId = null; editTemp = null; activeIndex = firstUnsaved();
       renderSets();
+      refreshSetController();
     }
     blockQuick.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); applyBlockQuick(); }
@@ -1264,150 +1232,169 @@ async function renderCustomMode(root, onFinish) {
         onGenerate: ({ warmups, working }) => {
           for (const s of warmups) ex.sets.push({ weight: String(s.weight), reps: String(s.reps), rir: "", saved: false, setType: "warmup" });
           for (const s of working) ex.sets.push({ weight: s.weight === "" ? "" : String(s.weight), reps: String(s.reps), rir: String(s.rir), saved: false, setType: "working" });
+          editingSetId = null; editTemp = null; activeIndex = firstUnsaved();
           renderSets();
+          refreshSetController();
         },
       });
     }
-    block.append(
-      el("div", { class: "row", style: { gap: "0.4rem", marginBottom: "0.5rem" } },
+
+    function buildCustomPanel() {
+      const meta = el("div", { class: "exercise-meta" },
+        el("span", { class: "pill" }, formatMuscle(ex.muscleGroup)),
+        perDB ? el("span", { class: "pill" }, "per dumbbell") : null,
+        MUSCLE_REFERENCE[ex.muscleGroup]
+          ? el("span", { class: "muted small" }, `${MUSCLE_REFERENCE[ex.muscleGroup].repRange} reps · ${MUSCLE_REFERENCE[ex.muscleGroup].rest} rest`)
+          : null,
+      );
+      const lines = el("div", { class: "sc-lines" });
+      if (estMax > 0) {
+        const trend = e1rmTrend(priorBests);
+        const arrow = trend === "rising" ? " ↗" : trend === "falling" ? " ↘" : trend === "flat" ? " →" : "";
+        lines.append(el("div", { class: "muted small" }, `Est. 1RM ~${toDisplay(Math.round(estMax * 10) / 10)} ${unitLabel()}${arrow}`));
+      }
+      const actions = el("div", { class: "row", style: { gap: "0.4rem", marginTop: "0.4rem" } },
         blockQuick,
         el("button", { class: "btn small", onclick: applyBlockQuick }, "Parse"),
         el("button", { type: "button", class: "btn small ghost", title: "Plan warm-ups + working sets", onclick: openPlanner }, "Plan"),
         el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(lastSavedWeightLbs() ? toDisplay(lastSavedWeightLbs()) : "") }, "Plates"),
-      ),
-      blockErrors,
-      setsContainer,
-    );
+      );
+      return el("div", {}, meta, lines, blockErrors, actions);
+    }
+
+    const cur = () => editingSetId ? editTemp : (ex.sets[activeIndex] && !ex.sets[activeIndex].saved ? ex.sets[activeIndex] : null);
+
+    function pushBlank() {
+      const prev = ex.sets.filter((s) => s.saved).pop();
+      ex.sets.push({
+        weight: prev ? String(toDisplay(prev.weight)) : "",
+        reps: prev?.reps != null ? String(prev.reps) : "",
+        rir: prev?.rir != null ? String(prev.rir) : "",
+        saved: false,
+      });
+    }
+    function addBlank() {
+      pushBlank();
+      editingSetId = null; editTemp = null; activeIndex = ex.sets.length - 1;
+      renderSets(); refreshSetController();
+    }
+    function selectSet(i) {
+      editingSetId = null; editTemp = null; activeIndex = i;
+      renderSets(); refreshSetController();
+    }
+    function editLogged(id) {
+      const s = ex.sets.find((x) => x.id === id);
+      if (!s) return;
+      editingSetId = id;
+      editTemp = { weight: String(toDisplay(s.weight)), reps: String(s.reps), rir: String(s.rir) };
+      setActiveExercise(ctx);
+      renderSets(); refreshSetController();
+    }
+    function deleteSet(id) {
+      confirmModal("Delete this set?", async () => {
+        await run(data.deleteSet(id), { ok: "Set deleted" });
+        const i = ex.sets.findIndex((x) => x.id === id);
+        if (i >= 0) ex.sets.splice(i, 1);
+        if (editingSetId === id) { editingSetId = null; editTemp = null; }
+        renderSets(); refreshSetController(); refreshLive?.();
+      });
+    }
+    async function logActive() {
+      const s = ex.sets[activeIndex];
+      if (!s || s.saved) return;
+      if (!s.weight || !s.reps) return toast("Need weight and reps", "bad");
+      const saved = await run(
+        data.logSet({
+          mesoId: CUSTOM_MESO_ID, week: 0, dayIndex: 0,
+          exercise: ex.exercise, muscleGroup: ex.muscleGroup, setNumber: activeIndex + 1,
+          weight: fromDisplay(s.weight), reps: +s.reps, rir: +(s.rir || 0),
+          setType: s.setType || "working", date: isoToday(),
+        }),
+        { ok: "Set logged" },
+      );
+      s.id = saved.id; s.weight = fromDisplay(s.weight); s.saved = true;
+      if (s.setType !== "warmup") startRest(restSecondsFor(ex.muscleGroup));
+      if (firstUnsaved() < 0) pushBlank();
+      activeIndex = firstUnsaved();
+      renderSets(); refreshSetController(); refreshLive?.();
+    }
 
     function renderSets() {
       setsContainer.replaceChildren();
-      setsContainer.append(
-        el("div", { class: "set-row", style: { color: "var(--muted)", fontSize: "0.75rem" } },
-          el("div", {}, "#"),
-          el("div", {}, `Weight (${unitLabel()}${perDB ? ", per DB" : ""})`),
-          el("div", {}, "Reps"),
-          el("div", {}, "RIR"),
-          el("div", {}, ""),
-        ),
-      );
-
+      if (activeIndex < 0 || activeIndex >= ex.sets.length || ex.sets[activeIndex].saved) activeIndex = firstUnsaved();
       ex.sets.forEach((s, i) => {
-        if (s.saved && editingSetId === s.id) {
-          const ed = { weight: toDisplay(s.weight), reps: s.reps, rir: s.rir };
-          const saveBtn = el("button", { class: "btn small primary" }, "Save");
-          const cancelBtn = el("button", { class: "btn small" }, "Cancel");
-          cancelBtn.onclick = () => { editingSetId = null; renderSets(); };
-          saveBtn.onclick = withLoading(saveBtn, async () => {
-            const weightLbs = fromDisplay(ed.weight);
-            await run(data.updateSet(s.id, { weight: weightLbs, reps: ed.reps, rir: ed.rir }), { ok: "Updated" });
-            s.weight = weightLbs; s.reps = ed.reps; s.rir = ed.rir;
-            editingSetId = null;
-            renderSets();
-            refreshLive?.();
-          });
+        if (s.saved) {
           setsContainer.append(
-            el("div", { class: "set-row editing" },
+            el("div", { class: "set-row set-status set-done" + (s.setType === "warmup" ? " set-warmup" : "") },
+              el("div", { class: "sc-dot" }, "✓"),
               el("div", { class: "idx" }, i + 1),
-              el("input", { type: "number", inputmode: "decimal", step: "0.5", "data-field": "weight", value: ed.weight, oninput: (e) => (ed.weight = e.target.value) }),
-              el("input", { type: "number", inputmode: "numeric", "data-field": "reps", value: ed.reps, oninput: (e) => (ed.reps = e.target.value) }),
-              el("input", { type: "number", inputmode: "numeric", min: "0", max: "10", "data-field": "rir", value: ed.rir, oninput: (e) => (ed.rir = e.target.value) }),
-              el("div", { class: "set-actions" }, saveBtn, cancelBtn),
-            ),
-          );
-        } else if (s.saved) {
-          setsContainer.append(
-            el("div", { class: "set-row set-done" + (s.setType === "warmup" ? " set-warmup" : "") },
-              el("div", { class: "idx" }, i + 1),
-              el("div", {}, toDisplay(s.weight)),
-              el("div", {}, s.reps),
-              el("div", {}, s.rir),
+              el("div", { class: "sc-setval" }, `${toDisplay(s.weight)} × ${s.reps} @ ${s.rir}`),
               el("div", { class: "set-actions" },
                 setTypeTag(s.setType),
-                el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => { editingSetId = s.id; renderSets(); } }, "✏"),
-                el("button", { class: "btn small danger ghost", "aria-label": "Delete set", onclick: () => {
-                  confirmModal("Delete this set?", async () => {
-                    await run(data.deleteSet(s.id), { ok: "Set deleted" });
-                    ex.sets.splice(i, 1);
-                    renderSets();
-                    refreshLive?.();
-                  });
-                } }, "×"),
+                el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => editLogged(s.id) }, "✏"),
+                el("button", { class: "btn small danger ghost", "aria-label": "Delete set", onclick: () => deleteSet(s.id) }, "×"),
               ),
             ),
           );
         } else {
-          const logBtn = el("button", { class: "btn small primary" }, "Log");
-          logBtn.onclick = withLoading(logBtn, async () => {
-            if (!s.weight || !s.reps) return toast("Need weight and reps", "bad");
-            const saved = await run(
-              data.logSet({
-                mesoId: CUSTOM_MESO_ID,
-                week: 0,
-                dayIndex: 0,
-                exercise: ex.exercise,
-                muscleGroup: ex.muscleGroup,
-                setNumber: i + 1,
-                weight: fromDisplay(s.weight),
-                reps: +s.reps,
-                rir: +(s.rir || 0),
-                setType: s.setType || "working",
-                date: isoToday(),
-              }),
-              { ok: "Set logged" },
-            );
-            s.id = saved.id;
-            s.weight = fromDisplay(s.weight);
-            s.saved = true;
-            if (s.setType !== "warmup") startRest(restSecondsFor(ex.muscleGroup));
-            renderSets();
-            refreshLive?.();
-          });
+          const active = !editingSetId && i === activeIndex;
+          const vals = (s.weight || s.reps || s.rir) ? `${s.weight || "–"} × ${s.reps || "–"} @ ${s.rir || "–"}` : "—";
           setsContainer.append(
-            el("div", { class: "set-row" },
+            el("div", { class: "set-row set-status set-draft" + (active ? " active" : ""), onclick: () => selectSet(i) },
+              el("div", { class: "sc-dot" }, active ? "●" : "○"),
               el("div", { class: "idx" }, i + 1),
-              el("input", {
-                type: "number", inputmode: "decimal", step: "0.5", "data-field": "weight",
-                placeholder: "wt", value: s.weight,
-                oninput: (e) => (s.weight = e.target.value),
-              }),
-              el("input", {
-                type: "number", inputmode: "numeric", "data-field": "reps",
-                placeholder: "reps", value: s.reps,
-                oninput: (e) => (s.reps = e.target.value),
-              }),
-              el("input", {
-                type: "number", inputmode: "numeric", min: "0", max: "10", "data-field": "rir",
-                placeholder: "RIR", value: s.rir,
-                oninput: (e) => (s.rir = e.target.value),
-              }),
-              el("div", { class: "set-actions" }, setTypeButton(s), logBtn),
+              el("div", { class: "sc-setval" }, vals),
+              el("div", { class: "set-actions" }, setTypeTag(s.setType)),
             ),
           );
         }
       });
-
       setsContainer.append(
-        el("button", {
-          class: "btn small", style: { marginTop: "0.6rem" },
-          onclick: () => {
-            const prev = ex.sets.filter((s) => s.saved).pop();
-            ex.sets.push({
-              weight: prev ? String(toDisplay(prev.weight)) : "",
-              reps: prev?.reps || "",
-              rir: prev?.rir || "",
-              saved: false,
-            });
-            renderSets();
-          },
-        }, "+ Add set"),
+        el("button", { class: "btn small", style: { marginTop: "0.5rem" }, onclick: addBlank }, "+ Add set"),
       );
     }
 
-    if (!ex.sets.some((s) => !s.saved)) {
-      ex.sets.push({ weight: "", reps: "", rir: "", saved: false });
-    }
+    const ctx = {
+      id: "custom|" + ex.exercise,
+      name: ex.exercise,
+      cardEl: block,
+      hasTarget: false,
+      progress: () => ({ done: ex.sets.filter((s) => s.saved).length, target: 0, remaining: 0 }),
+      isEditing: () => !!editingSetId,
+      activeLabel: () => editingSetId ? `Edit set ${ex.sets.findIndex((s) => s.id === editingSetId) + 1}` : "",
+      field: (f) => { const c = cur(); return c ? String(c[f] ?? "") : ""; },
+      setField: (f, v) => { const c = cur(); if (!c) return; c[f] = v; renderSets(); },
+      seedFor: (f) => {
+        const last = ex.sets.filter((s) => s.saved).pop();
+        if (f === "weight") return last ? String(toDisplay(last.weight)) : "";
+        if (f === "reps") return last?.reps != null ? String(last.reps) : "";
+        return last?.rir != null ? String(last.rir) : "";
+      },
+      typeLabel: () => { const c = cur(); if (!c || editingSetId) return null; return SET_TYPE_LABEL[c.setType || "working"]; },
+      cycleType: () => { const c = cur(); if (!c || editingSetId) return; c.setType = SET_TYPES[(SET_TYPES.indexOf(c.setType || "working") + 1) % SET_TYPES.length]; renderSets(); },
+      canLog: () => { const c = cur(); return !!(c && c.weight && c.reps); },
+      commit: async () => {
+        if (editingSetId) {
+          const id = editingSetId;
+          const s = ex.sets.find((x) => x.id === id);
+          const weightLbs = fromDisplay(editTemp.weight);
+          await run(data.updateSet(id, { weight: weightLbs, reps: +editTemp.reps, rir: +editTemp.rir }), { ok: "Updated" });
+          if (s) { s.weight = weightLbs; s.reps = +editTemp.reps; s.rir = +editTemp.rir; }
+          editingSetId = null; editTemp = null;
+          renderSets(); refreshLive?.();
+        } else {
+          await logActive();
+        }
+      },
+      addSet: addBlank,
+      buildPanel: buildCustomPanel,
+      onDeactivate: () => { if (editingSetId) { editingSetId = null; editTemp = null; renderSets(); } },
+    };
+
+    if (firstUnsaved() < 0) pushBlank();
+    activeIndex = firstUnsaved();
     renderSets();
-    return block;
+    return { block, ctx };
   }
 
   rerender();
