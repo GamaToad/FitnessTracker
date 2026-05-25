@@ -443,6 +443,38 @@ input[type="number"] {
 .toast.ok { border-color: var(--ok); }
 .toast.bad { border-color: var(--bad); }
 
+/* Rest timer — sticky bar above the finish button */
+.rest-timer-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%) translateY(120%);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 480px;
+  width: calc(100% - 1.5rem);
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.4rem 0.4rem 0.4rem 1rem;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 90;
+}
+.rest-timer-bar.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.rest-timer-label { color: var(--muted); font-size: 0.85rem; }
+.rest-timer-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--accent);
+  min-width: 3.2ch;
+}
+.rest-timer-actions { display: flex; gap: 0.3rem; margin-left: auto; }
+
 /* Banner */
 .banner {
   background: var(--panel-2);

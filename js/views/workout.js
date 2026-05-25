@@ -1,7 +1,8 @@
 import { el, isoToday, run, toast, withLoading, defaultSessionState, buildSessionMetaForm, confirmModal, stat, normalizeName, formatMuscle } from "../ui.js";
 import * as data from "../data.js";
 import { CUSTOM_MESO_ID } from "../data.js";
-import { distributeSets, suggestSetAdjustment, WORKOUT_PRESETS, MUSCLE_REFERENCE, MUSCLE_REGIONS } from "../rp.js";
+import { distributeSets, suggestSetAdjustment, WORKOUT_PRESETS, MUSCLE_REFERENCE, MUSCLE_REGIONS, restSecondsFor } from "../rp.js";
+import { startRest } from "../timer.js";
 import { suggestForGroups, sessionZone } from "../suggest.js";
 import { openExercisePicker } from "../exercise-picker.js";
 import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
@@ -680,6 +681,7 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
       { ok: "Set logged" },
     );
     logged.push(saved);
+    if (saved.setType !== "warmup") startRest(restSecondsFor(ex.muscleGroup));
     drafts.splice(idx, 1);
     const remaining = Math.max(0, setTarget - logged.length - drafts.length);
     if (remaining > 0 && !drafts.length) addDraft();
@@ -1152,6 +1154,7 @@ async function renderCustomMode(root, onFinish) {
             s.id = saved.id;
             s.weight = fromDisplay(s.weight);
             s.saved = true;
+            if (s.setType !== "warmup") startRest(restSecondsFor(ex.muscleGroup));
             renderSets();
             refreshLive?.();
           });

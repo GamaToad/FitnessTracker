@@ -40,6 +40,10 @@ export const config = {
   // Display unit for weights, "lb" or "kg". Weights are always STORED in lbs;
   // this only controls display/input conversion.
   displayUnit: localStorage.getItem("rp.displayUnit") === "kg" ? "kg" : "lb",
+
+  // Rest timer: auto-starts after logging a working set. Sound plays on expiry.
+  restTimerEnabled: localStorage.getItem("gama.restTimer") !== "off",
+  restTimerSound: localStorage.getItem("gama.restSound") !== "off",
 };
 
 // Allow runtime override from the Settings page.
@@ -58,4 +62,14 @@ export function setDisplayUnit(unit) {
   const u = unit === "kg" ? "kg" : "lb";
   localStorage.setItem("rp.displayUnit", u);
   config.displayUnit = u;
+}
+
+export function setRestTimerEnabled(on) {
+  localStorage.setItem("gama.restTimer", on ? "on" : "off");
+  config.restTimerEnabled = !!on;
+}
+
+export function setRestTimerSound(on) {
+  localStorage.setItem("gama.restSound", on ? "on" : "off");
+  config.restTimerSound = !!on;
 }

@@ -15,6 +15,7 @@
     "check:dates": "node tools/check-dates.mjs",
     "check:performance": "node tools/check-performance.mjs",
     "check:outbox": "node tools/check-outbox.mjs",
-    "check:seed": "node tools/check-seed.mjs"
+    "check:seed": "node tools/check-seed.mjs",
+    "check:rest": "node tools/check-rest.mjs"
   }
 }

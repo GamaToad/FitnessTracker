@@ -83,6 +83,34 @@ export const MUSCLE_REFERENCE = {
   Abductors: { sessionCap: [6, 10], repRange: "12–25", rest: "1 min", freq: "2–3×" },
 };
 
+// Parse a rest band string ("2–3 min", "30–90 sec", "3+ min", "30 sec–2 min",
+// "1.5–2 min") into a representative seconds value (the midpoint of the range,
+// or the single value for "N+"/"N unit"). Returns null if unparseable. Pure.
+export function parseRestToSeconds(restStr) {
+  if (!restStr) return null;
+  const text = String(restStr);
+  const globalUnit = /min/i.test(text) ? "min" : "sec";
+  const toSec = (chunk) => {
+    const m = chunk.match(/[\d.]+/);
+    if (!m) return null;
+    const n = parseFloat(m[0]);
+    const unit = /min/i.test(chunk) ? "min" : /sec/i.test(chunk) ? "sec" : globalUnit;
+    return unit === "min" ? n * 60 : n;
+  };
+  if (text.includes("+")) {
+    const v = toSec(text);
+    return v == null ? null : Math.round(v);
+  }
+  const vals = text.split(/[–-]/).map(toSec).filter((v) => v != null);
+  if (!vals.length) return null;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+}
+
+// Representative rest in seconds for a muscle group, from MUSCLE_REFERENCE.
+export function restSecondsFor(muscleGroup) {
+  return parseRestToSeconds(MUSCLE_REFERENCE[muscleGroup]?.rest) ?? 120;
+}
+
 // Named Freeform workout types → the muscle groups they target.
 export const WORKOUT_PRESETS = {
   Push: ["Chest", "Shoulders (front delts)", "Shoulders (side delts)", "Triceps"],

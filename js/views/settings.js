@@ -1,5 +1,5 @@
 import { el, run, toast, withLoading, confirmModal, formatMuscle } from "../ui.js";
-import { config, setClientId, setDisplayUnit, isUsingDemoClientId } from "../config.js";
+import { config, setClientId, setDisplayUnit, setRestTimerEnabled, setRestTimerSound, isUsingDemoClientId } from "../config.js";
 import * as sheets from "../sheets.js";
 import * as data from "../data.js";
 import { MUSCLE_GROUPS, EQUIPMENT_TYPES } from "../rp.js";
@@ -18,6 +18,18 @@ export async function render(container) {
       setTimeout(() => location.reload(), 400);
     },
   }, label);
+  // On/off toggle that flips a config flag in place (no reload).
+  const toggle = (getOn, setOn) => {
+    const render = (btn) => {
+      const on = getOn();
+      btn.textContent = on ? "On" : "Off";
+      btn.className = "btn" + (on ? " primary" : "");
+    };
+    const btn = el("button", {});
+    btn.onclick = () => { setOn(!getOn()); render(btn); };
+    render(btn);
+    return btn;
+  };
   container.append(
     el("section", { class: "card" },
       el("h2", {}, "Preferences"),
@@ -25,6 +37,15 @@ export async function render(container) {
         el("label", {}, "Weight units"),
         el("p", { class: "muted small" }, "Weights are stored in pounds; this changes display and entry only."),
         el("div", { class: "row", style: { gap: "0.4rem" } }, unitBtn("lb", "Pounds (lb)"), unitBtn("kg", "Kilograms (kg)")),
+      ),
+      el("div", { class: "field" },
+        el("label", {}, "Rest timer"),
+        el("p", { class: "muted small" }, "Auto-starts a countdown after you log a working set."),
+        el("div", { class: "row", style: { gap: "0.4rem", alignItems: "center" } },
+          toggle(() => config.restTimerEnabled, setRestTimerEnabled),
+          el("span", { class: "muted small" }, "Sound"),
+          toggle(() => config.restTimerSound, setRestTimerSound),
+        ),
       ),
     ),
   );
