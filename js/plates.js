@@ -9,6 +9,22 @@ export const BAR_KG = 20;
 export const defaultBar = (unit) => (unit === "kg" ? BAR_KG : BAR_LB);
 export const defaultPlates = (unit) => (unit === "kg" ? PLATES_KG : PLATES_LB);
 
+// Denominations offered as +/- steppers in the interactive plate calculator —
+// a trimmed set of the most common gym plates, largest first.
+export const STEPPER_PLATES_LB = [45, 25, 10, 5];
+export const STEPPER_PLATES_KG = [25, 20, 15, 10, 5];
+export const stepperPlates = (unit) => (unit === "kg" ? STEPPER_PLATES_KG : STEPPER_PLATES_LB);
+
+// Total bar weight from a per-side count map ({ [plate]: count }) on a given bar.
+// Pure / Node-testable.
+export function totalFromCounts(counts, barWeight) {
+  let perSide = 0;
+  for (const [plate, count] of Object.entries(counts || {})) {
+    perSide += Number(plate) * Number(count || 0);
+  }
+  return Math.round((barWeight + perSide * 2) * 100) / 100;
+}
+
 // Greedy plates-per-side to load `target` on a bar of `barWeight`, drawing from
 // `inventory` (plate sizes, unlimited count). Returns:
 //   perSide: [{ plate, count }]  — plates on EACH side, largest first

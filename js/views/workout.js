@@ -10,7 +10,7 @@ import { parseSets } from "../parse-sets.js";
 import { resolveExerciseName } from "../exercise-match.js";
 import { config } from "../config.js";
 import { toDisplay, fromDisplay, unitLabel, isDumbbell, dbVolumeFactor } from "../units.js";
-import { platesPerSide, defaultBar, defaultPlates } from "../plates.js";
+import { platesPerSide, defaultBar, stepperPlates, totalFromCounts } from "../plates.js";
 import { drawDonut } from "../chart.js";
 import { planExercise } from "../warmup.js";
 
@@ -79,34 +79,69 @@ function perfPill(perf, detailed = false) {
   return el("span", { class: "perf-pill " + cls, title }, ...children);
 }
 
-// Bottom-sheet plate calculator. `initialDisplay` is a weight in the current
-// display unit. Reuses the picker overlay/sheet CSS.
+// Bottom-sheet plate calculator. Interactive +/- builder: tap each plate
+// denomination up/down (counts are PER SIDE), on a fixed bar, with a live total
+// and a one-side visualization. `initialDisplay` (display unit) auto-loads the
+// nearest achievable load at/below it. Reuses the picker overlay/sheet CSS.
 function openPlateModal(initialDisplay) {
   const unit = config.displayUnit;
   const bar = defaultBar(unit);
+  const denoms = stepperPlates(unit);
   const overlay = el("div", { class: "picker-overlay" });
   const close = () => overlay.remove();
   overlay.onclick = (e) => { if (e.target === overlay) close(); };
 
-  const input = el("input", { type: "number", inputmode: "decimal", step: "0.5", value: initialDisplay || "", style: { flex: "1" } });
-  const result = el("div", { style: { marginTop: "0.6rem" } });
-  function compute() {
-    result.replaceChildren();
-    const t = Number(input.value);
-    if (!Number.isFinite(t) || t <= 0) return;
-    const { perSide, leftover, loadable } = platesPerSide(t, bar, defaultPlates(unit));
-    if (!perSide.length) {
-      result.append(el("div", {}, `Just the bar (${bar} ${unit}).`));
-    } else {
-      const perSideWeight = Math.round(((loadable - bar) / 2) * 100) / 100;
-      result.append(el("div", {},
-        "Per side: " + perSide.map((p) => `${p.count}×${p.plate}`).join(", ") + ` = ${perSideWeight} ${unit}`));
-    }
-    result.append(el("div", { class: "muted small" },
-      `Bar ${bar} ${unit} · total ${loadable} ${unit}`
-      + (leftover > 0 ? ` (${leftover} ${unit}/side short of ${t})` : "")));
+  const fmt = (x) => (Math.round(x * 100) / 100).toString();
+
+  // Per-side counts, seeded from the suggested weight (auto-load nearest).
+  const counts = {};
+  for (const d of denoms) counts[d] = 0;
+  for (const { plate, count } of platesPerSide(Number(initialDisplay), bar, denoms).perSide) {
+    counts[plate] = count;
   }
-  input.addEventListener("input", compute);
+
+  const countEls = {};
+  const viz = el("div", { class: "plate-bar" });
+  const summary = el("div", { class: "plate-summary" });
+
+  function render() {
+    for (const d of denoms) countEls[d].textContent = String(counts[d]);
+
+    // One side only: bar stub, then plates largest → smallest, left → right.
+    viz.replaceChildren(el("div", { class: "plate-sleeve" }));
+    for (const d of denoms) {
+      for (let i = 0; i < counts[d]; i++) {
+        viz.append(el("div", { class: `plate-block p-${fmt(d)}` }, fmt(d)));
+      }
+    }
+
+    const total = totalFromCounts(counts, bar);
+    const loaded = denoms.filter((d) => counts[d] > 0);
+    summary.replaceChildren();
+    if (!loaded.length) {
+      summary.append(el("span", { class: "plate-summary-main" }, `Just the bar — ${fmt(bar)} ${unit} total`));
+    } else {
+      summary.append(
+        el("span", { class: "plate-summary-main" }, `${fmt(total)} ${unit} total`),
+        el("div", { class: "muted small" },
+          loaded.map((d) => `${counts[d]}× ${fmt(d)} ${unit}`).join(" + ")
+          + ` per side  ·  + ${fmt(bar)} ${unit} bar`),
+      );
+    }
+  }
+
+  const rows = denoms.map((d) => {
+    const count = el("span", { class: "plate-count" });
+    countEls[d] = count;
+    return el("div", { class: "plate-row" },
+      el("span", { class: "plate-label" }, `${fmt(d)} ${unit}`),
+      el("div", { class: "plate-stepper" },
+        el("button", { type: "button", class: "btn icon", title: `Remove ${fmt(d)} ${unit}`, onclick: () => { if (counts[d] > 0) { counts[d]--; render(); } } }, "−"),
+        count,
+        el("button", { type: "button", class: "btn icon", title: `Add ${fmt(d)} ${unit}`, onclick: () => { counts[d]++; render(); } }, "+"),
+      ),
+    );
+  });
 
   overlay.append(
     el("div", { class: "picker-sheet" },
@@ -114,12 +149,15 @@ function openPlateModal(initialDisplay) {
         el("strong", {}, `Plate calculator (${unit})`),
         el("button", { type: "button", class: "btn icon", title: "Close", onclick: close }, "×"),
       ),
-      el("div", { class: "row", style: { gap: "0.4rem" } }, input, el("span", { class: "muted" }, unit)),
-      result,
+      el("div", { class: "picker-filter-label" }, "Plates per side"),
+      ...rows,
+      el("div", { class: "muted small plate-viz-label" }, "Each side"),
+      viz,
+      summary,
     ),
   );
   document.body.append(overlay);
-  compute();
+  render();
 }
 
 // Bottom-sheet exercise planner. Picks a target working weight from up to three

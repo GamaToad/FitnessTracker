@@ -1,6 +1,6 @@
 // Checks plate math and warm-up ramps. Pure modules, import directly. Run with:
 //   node tools/check-plates.mjs   (or: npm run check:plates)
-import { platesPerSide, defaultBar, defaultPlates } from "../js/plates.js";
+import { platesPerSide, defaultBar, defaultPlates, stepperPlates, totalFromCounts } from "../js/plates.js";
 import { warmupSets } from "../js/warmup.js";
 
 let failures = 0;
@@ -55,6 +55,20 @@ function BAR() { return defaultBar("lb"); } // 45
 
 // Working weight at/below bar → no warm-up.
 if (warmupSets(45).length !== 0) fail("warmupSets(45) should be empty");
+
+// Stepper denominations: trimmed common-gym sets, largest first.
+{
+  const lb = stepperPlates("lb"), kg = stepperPlates("kg");
+  if (JSON.stringify(lb) !== JSON.stringify([45, 25, 10, 5])) fail(`stepperPlates(lb) → ${JSON.stringify(lb)}`);
+  if (JSON.stringify(kg) !== JSON.stringify([25, 20, 15, 10, 5])) fail(`stepperPlates(kg) → ${JSON.stringify(kg)}`);
+}
+
+// totalFromCounts: bar + 2×Σ(plate×count).
+{
+  if (totalFromCounts({ 45: 1 }, 45) !== 135) fail(`totalFromCounts({45:1},45) → ${totalFromCounts({ 45: 1 }, 45)}`);
+  if (totalFromCounts({ 45: 2, 25: 1 }, 45) !== 275) fail(`totalFromCounts({45:2,25:1},45) → ${totalFromCounts({ 45: 2, 25: 1 }, 45)}`);
+  if (totalFromCounts({}, 45) !== 45) fail(`totalFromCounts({},45) → ${totalFromCounts({}, 45)}`);
+}
 
 if (failures) { console.error(`\n${failures} plate/warm-up check failure(s).`); process.exit(1); }
 console.log("OK: plate math and warm-up ramps pass.");
