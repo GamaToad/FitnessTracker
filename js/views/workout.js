@@ -12,7 +12,7 @@ import { config } from "../config.js";
 import { toDisplay, fromDisplay, unitLabel, isDumbbell, dbVolumeFactor } from "../units.js";
 import { platesPerSide, defaultBar, defaultPlates } from "../plates.js";
 import { drawDonut } from "../chart.js";
-import { warmupSets } from "../warmup.js";
+import { planExercise } from "../warmup.js";
 
 // Per-set intensifier tags. "warmup" is excluded from volume/analytics; every
 // other type counts as one working set.
@@ -120,6 +120,100 @@ function openPlateModal(initialDisplay) {
   );
   document.body.append(overlay);
   compute();
+}
+
+// Bottom-sheet exercise planner. Picks a target working weight from up to three
+// sources (profile suggestion, last session, manual), then generates a warm-up
+// ramp + working sets. All weights are in display units. `onGenerate` receives
+// { warmups, working } rows (weights as numbers). `sources` is
+// { profile, last } in display units (either may be null).
+function openPlannerModal({ sources = {}, defaultSets = 3, defaultReps = 8, defaultRIR = 2, onGenerate }) {
+  const unit = config.displayUnit;
+  const overlay = el("div", { class: "picker-overlay" });
+  const close = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+  const profile = sources.profile != null ? Math.round(sources.profile * 10) / 10 : null;
+  const last = sources.last != null ? Math.round(sources.last * 10) / 10 : null;
+  let activeSource = profile != null ? "profile" : last != null ? "last" : "manual";
+
+  const weightInput = el("input", {
+    type: "number", inputmode: "decimal", step: "0.5",
+    value: profile != null ? profile : last != null ? last : "",
+    style: { flex: "1" },
+  });
+  const setsInput = el("input", { type: "number", inputmode: "numeric", min: "0", value: defaultSets, style: { width: "100%" } });
+  const repsInput = el("input", { type: "number", inputmode: "numeric", min: "1", value: defaultReps, style: { width: "100%" } });
+  const rirInput = el("input", { type: "number", inputmode: "numeric", min: "0", max: "10", value: defaultRIR, style: { width: "100%" } });
+  const preview = el("div", { style: { marginTop: "0.6rem" } });
+
+  const sourceRow = el("div", { class: "row", style: { gap: "0.4rem", flexWrap: "wrap" } });
+  const srcBtn = (key, label, value) => {
+    const disabled = value == null && key !== "manual";
+    const b = el("button", {
+      type: "button",
+      class: "btn small" + (activeSource === key ? " primary" : ""),
+      disabled: disabled ? true : null,
+    }, value != null ? `${label} ${value} ${unit}` : label);
+    b.onclick = () => {
+      activeSource = key;
+      if (value != null) weightInput.value = value;
+      [...sourceRow.children].forEach((c) => c.classList.remove("primary"));
+      b.classList.add("primary");
+      build();
+    };
+    return b;
+  };
+  sourceRow.append(
+    srcBtn("profile", "Profile", profile),
+    srcBtn("last", "Last", last),
+    srcBtn("manual", "Manual", null),
+  );
+  weightInput.addEventListener("input", () => { activeSource = "manual"; build(); });
+  [setsInput, repsInput, rirInput].forEach((i) => i.addEventListener("input", build));
+
+  function currentPlan() {
+    return planExercise({
+      workingWeight: Number(weightInput.value),
+      sets: Number(setsInput.value),
+      reps: Number(repsInput.value),
+      rir: Number(rirInput.value),
+      unit,
+    });
+  }
+
+  function build() {
+    const { warmups, working } = currentPlan();
+    preview.replaceChildren(
+      el("div", { class: "muted small" }, "Preview"),
+      ...warmups.map((s) => el("div", { class: "muted small" }, `Warm-up · ${s.weight} ${unit} × ${s.reps}`)),
+      ...working.map((s, i) => el("div", { class: "small" }, `Set ${i + 1} · ${s.weight || "?"} ${unit} × ${s.reps} @ ${s.rir} RIR`)),
+    );
+  }
+
+  const generateBtn = el("button", { class: "btn primary" }, "Generate");
+  generateBtn.onclick = () => { onGenerate(currentPlan()); close(); };
+
+  const field = (label, input) => el("div", { class: "field", style: { flex: "1" } }, el("label", { class: "muted small" }, label), input);
+
+  overlay.append(
+    el("div", { class: "picker-sheet" },
+      el("div", { class: "picker-head" },
+        el("strong", {}, "Plan exercise"),
+        el("button", { type: "button", class: "btn icon", title: "Close", onclick: close }, "×"),
+      ),
+      el("div", { class: "picker-filter-label" }, "Working weight from"),
+      sourceRow,
+      el("div", { class: "row", style: { gap: "0.4rem", marginTop: "0.5rem" } }, weightInput, el("span", { class: "muted" }, unit)),
+      el("div", { class: "field-row", style: { gap: "0.4rem", marginTop: "0.5rem" } },
+        field("Working sets", setsInput), field("Reps", repsInput), field("RIR", rirInput),
+      ),
+      preview,
+      el("div", { class: "row", style: { marginTop: "0.75rem", justifyContent: "flex-end" } }, generateBtn),
+    ),
+  );
+  document.body.append(overlay);
+  build();
 }
 
 // Inline panel listing chunks the parser couldn't resolve, each an editable
@@ -566,19 +660,27 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
   quickInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); applyQuick(); }
   });
-  function addWarmup() {
-    const base = suggested || prev?.weight || (drafts[0] && fromDisplay(drafts[0].weight));
-    if (!base) return toast("Set a working weight first", "bad");
-    const ramp = warmupSets(toDisplay(base), config.displayUnit);
-    if (!ramp.length) return toast("Working weight too light for warm-ups", "bad");
-    for (const s of ramp) drafts.push({ weight: String(s.weight), reps: String(s.reps), rir: "", setType: "warmup" });
-    renderSets();
+  function openPlanner() {
+    openPlannerModal({
+      sources: {
+        profile: suggested != null ? toDisplay(suggested) : null,
+        last: prev?.weight != null ? toDisplay(prev.weight) : null,
+      },
+      defaultSets: setTarget || 3,
+      defaultReps: analysis.repRange.min,
+      defaultRIR: targetRIR,
+      onGenerate: ({ warmups, working }) => {
+        for (const s of warmups) drafts.push({ weight: String(s.weight), reps: String(s.reps), rir: "", setType: "warmup" });
+        for (const s of working) drafts.push({ weight: s.weight === "" ? "" : String(s.weight), reps: String(s.reps), rir: String(s.rir), setType: "working" });
+        renderSets();
+      },
+    });
   }
   block.append(
     el("div", { class: "row", style: { gap: "0.4rem", marginBottom: "0.5rem" } },
       quickInput,
       el("button", { class: "btn small", onclick: applyQuick }, "Parse"),
-      el("button", { type: "button", class: "btn small ghost", title: "Add warm-up sets", onclick: addWarmup }, "Warm-up"),
+      el("button", { type: "button", class: "btn small ghost", title: "Plan warm-ups + working sets", onclick: openPlanner }, "Plan"),
       el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(suggestedDisplay) }, "Plates"),
     ),
     errorsContainer,
@@ -1093,19 +1195,42 @@ async function renderCustomMode(root, onFinish) {
     blockQuick.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); applyBlockQuick(); }
     });
-    function addBlockWarmup() {
-      const base = lastSavedWeightLbs();
-      if (!base) return toast("Log a working set first", "bad");
-      const ramp = warmupSets(toDisplay(base), config.displayUnit);
-      if (!ramp.length) return toast("Working weight too light for warm-ups", "bad");
-      for (const s of ramp) ex.sets.push({ weight: String(s.weight), reps: String(s.reps), rir: "", saved: false, setType: "warmup" });
-      renderSets();
+    // Most recent prior session's top (heaviest, non-warm-up) set — for the
+    // planner's profile/last-session weight sources in freeform mode.
+    function lastTopFromHistory() {
+      const hist = priorSets.filter((s) => s.setType !== "warmup");
+      if (!hist.length) return null;
+      const lastDate = [...new Set(hist.map((s) => s.date))].sort().pop();
+      const day = hist.filter((s) => s.date === lastDate);
+      let top = day[0];
+      for (const s of day) if (+s.weight > +top.weight) top = s;
+      return { weight: +top.weight, reps: +top.reps, rir: +top.rir };
+    }
+    function openPlanner() {
+      const ref = MUSCLE_REFERENCE[ex.muscleGroup] || {};
+      const defaultReps = parseInt(ref.repRange, 10) || 8;
+      const defaultSets = (ref.sessionCap && ref.sessionCap[0]) || 3;
+      const prevTop = lastTopFromHistory();
+      const suggested = prevTop ? adaptiveSuggestWeight(prevTop, defaultReps, 2, ex.exercise, priorSets) : null;
+      const lastLbs = lastSavedWeightLbs() ?? prevTop?.weight ?? null;
+      openPlannerModal({
+        sources: {
+          profile: suggested != null ? toDisplay(suggested) : null,
+          last: lastLbs != null ? toDisplay(lastLbs) : null,
+        },
+        defaultSets, defaultReps, defaultRIR: 2,
+        onGenerate: ({ warmups, working }) => {
+          for (const s of warmups) ex.sets.push({ weight: String(s.weight), reps: String(s.reps), rir: "", saved: false, setType: "warmup" });
+          for (const s of working) ex.sets.push({ weight: s.weight === "" ? "" : String(s.weight), reps: String(s.reps), rir: String(s.rir), saved: false, setType: "working" });
+          renderSets();
+        },
+      });
     }
     block.append(
       el("div", { class: "row", style: { gap: "0.4rem", marginBottom: "0.5rem" } },
         blockQuick,
         el("button", { class: "btn small", onclick: applyBlockQuick }, "Parse"),
-        el("button", { type: "button", class: "btn small ghost", title: "Add warm-up sets", onclick: addBlockWarmup }, "Warm-up"),
+        el("button", { type: "button", class: "btn small ghost", title: "Plan warm-ups + working sets", onclick: openPlanner }, "Plan"),
         el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(lastSavedWeightLbs() ? toDisplay(lastSavedWeightLbs()) : "") }, "Plates"),
       ),
       blockErrors,

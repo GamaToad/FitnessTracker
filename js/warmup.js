@@ -24,3 +24,20 @@ export function warmupSets(workingWeight, unit = "lb") {
   }
   return out;
 }
+
+// Plan a full exercise from a target working weight: a warm-up ramp toward it
+// plus N working sets. Weights are in the given display unit. Pure / testable.
+// Returns { warmups: [{weight, reps, setType}], working: [{weight, reps, rir, setType}] }.
+export function planExercise({ workingWeight, sets = 3, reps = 8, rir = 2, unit = "lb" } = {}) {
+  const w = Number(workingWeight);
+  const hasWeight = Number.isFinite(w) && w > 0;
+  const warmups = hasWeight
+    ? warmupSets(w, unit).map((s) => ({ weight: s.weight, reps: s.reps, setType: "warmup" }))
+    : [];
+  const n = Math.max(0, Math.round(Number(sets) || 0));
+  const working = [];
+  for (let i = 0; i < n; i++) {
+    working.push({ weight: hasWeight ? w : "", reps: Number(reps) || reps, rir, setType: "working" });
+  }
+  return { warmups, working };
+}
