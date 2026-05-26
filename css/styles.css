@@ -348,6 +348,43 @@ input[type="number"] {
 .field-row.three { grid-template-columns: 1fr 1fr 1fr; }
 .field-row.four { grid-template-columns: 1fr 1fr 1fr 1fr; }
 
+/* Session feedback: compact muscle × metric grid with drag-to-scrub values */
+.feedback-grid {
+  display: grid;
+  grid-template-columns: 1fr repeat(4, 2.6rem);
+  gap: 0.3rem 0.4rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+.feedback-grid .fb-head { text-align: center; }
+.feedback-grid .fb-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+}
+.scrub {
+  height: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: ns-resize;
+  user-select: none;
+  touch-action: none;
+}
+.scrub[data-level="0"] { color: var(--muted); }
+.scrub[data-level="1"] { color: var(--text); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.scrub[data-level="2"] { color: var(--text); background: color-mix(in srgb, var(--accent) 30%, var(--panel-2)); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.scrub[data-level="3"] { color: #fff; background: var(--accent); border-color: var(--accent); }
+.scrub:focus-visible { outline: 2px solid var(--gama-green); outline-offset: -1px; border-color: var(--gama-green); }
+
 /* Set log row */
 .set-row {
   display: grid;

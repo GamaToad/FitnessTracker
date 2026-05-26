@@ -553,25 +553,67 @@ export function buildVolumeSuggestionCard(items, { mesoId, week, onChange } = {}
 }
 
 // 0–3 per-muscle feedback inputs for the just-finished session.
+// Feedback metrics in column order: [state key, header label].
+const FEEDBACK_METRICS = [["pump", "Pump"], ["soreness", "Sore"], ["jointPain", "Joint"], ["performance", "Perf"]];
+
 function buildFeedbackCard(muscles, state) {
   const card = el("section", { class: "card" },
     el("h3", {}, "Session feedback"),
-    el("p", { class: "muted small" }, "Rate each muscle 0–3 (pump, soreness, joint pain, performance) to tune next week."),
+    el("p", { class: "muted small" }, "Drag a value up/down (or tap) to rate 0–3 — tunes next week."),
   );
-  const sel = (m, key) => el("select", { onchange: (e) => (state[m][key] = +e.target.value) },
-    ...[0, 1, 2, 3].map((v) => el("option", { value: v, selected: state[m][key] === v ? "" : null }, String(v))),
-  );
+
+  // A compact value cell you scrub vertically (slide up = higher) or tap to bump.
+  const STEP_PX = 22;
+  const clamp = (v) => Math.max(0, Math.min(3, v));
+  const scrubCell = (m, key, label) => {
+    const cell = el("div", {
+      class: "scrub", role: "slider", tabindex: "0",
+      "aria-label": `${formatMuscle(m)} ${label}`,
+      "aria-valuemin": "0", "aria-valuemax": "3", "aria-valuenow": String(state[m][key]),
+      "data-level": String(state[m][key]),
+    }, String(state[m][key]));
+    const set = (v) => {
+      v = clamp(v);
+      state[m][key] = v;
+      cell.textContent = String(v);
+      cell.setAttribute("aria-valuenow", String(v));
+      cell.setAttribute("data-level", String(v));
+    };
+    let startY = 0, startVal = 0, moved = 0, dragging = false;
+    cell.addEventListener("pointerdown", (e) => {
+      dragging = true; moved = 0; startY = e.clientY; startVal = state[m][key];
+      cell.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    cell.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const delta = startY - e.clientY; // up (smaller Y) → increase
+      moved = Math.max(moved, Math.abs(delta));
+      set(startVal + Math.round(delta / STEP_PX));
+    });
+    const end = () => { dragging = false; };
+    cell.addEventListener("pointerup", (e) => {
+      if (dragging && moved < 6) set((state[m][key] + 1) % 4); // treat as a tap
+      end();
+    });
+    cell.addEventListener("pointercancel", end);
+    cell.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowUp" || e.key === "ArrowRight") { set(state[m][key] + 1); e.preventDefault(); }
+      else if (e.key === "ArrowDown" || e.key === "ArrowLeft") { set(state[m][key] - 1); e.preventDefault(); }
+    });
+    return cell;
+  };
+
+  const grid = el("div", { class: "feedback-grid" });
+  // Header row: empty name cell + one label per metric (rendered once).
+  grid.append(el("span", {}), ...FEEDBACK_METRICS.map(([, label]) => el("span", { class: "fb-head muted small" }, label)));
   for (const m of muscles) {
-    card.append(
-      el("div", { class: "field-row", style: { alignItems: "end", gap: "0.4rem", marginTop: "0.4rem" } },
-        el("div", { class: "field", style: { flex: "1" } }, el("label", {}, formatMuscle(m))),
-        el("div", { class: "field" }, el("label", { class: "muted small" }, "Pump"), sel(m, "pump")),
-        el("div", { class: "field" }, el("label", { class: "muted small" }, "Sore"), sel(m, "soreness")),
-        el("div", { class: "field" }, el("label", { class: "muted small" }, "Joint"), sel(m, "jointPain")),
-        el("div", { class: "field" }, el("label", { class: "muted small" }, "Perf"), sel(m, "performance")),
-      ),
+    grid.append(
+      el("span", { class: "fb-name" }, formatMuscle(m)),
+      ...FEEDBACK_METRICS.map(([key, label]) => scrubCell(m, key, label)),
     );
   }
+  card.append(grid);
   return card;
 }
 
