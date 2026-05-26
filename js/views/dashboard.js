@@ -117,6 +117,10 @@ export async function render(container, { signedIn }) {
     return;
   }
 
+  // Pull fresh on every homepage open so edits made elsewhere (other device,
+  // direct sheet edits) are reflected, not just locally-invalidated writes.
+  data.clearCaches();
+
   // --- Load all data upfront (shared by every tab) ---
   const [mesos, allSets, allSessions, cardioEntries, eqMap, landmarks] = await Promise.all([
     data.listMesocycles(),
