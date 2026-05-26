@@ -94,13 +94,16 @@ function openPlateModal(initialDisplay, { equipment = "", exercise = "" } = {}) 
   const fmt = (x) => (Math.round(x * 100) / 100).toString();
 
   let base = barLike ? defaultBar(unit) : 0;        // bar / starting weight
-  let perSide = isHS && isPerSide(exercise);        // iso-lateral single arm?
+  // Hammer Strength loads either per-arm ("perside") or as one shared stack
+  // ("both"); other equipment is a normal two-sided bar. Persisted per exercise.
+  let loadMode = isHS ? (isPerSide(exercise) ? "perside" : "both") : "total";
   const counts = {};
 
-  // (Re)seed plate counts from a target weight at/below `initialDisplay`.
+  // (Re)seed plate counts from a target weight at/below `initialDisplay`. HS
+  // steppers are the literal plates entered (divisor 1); a bar splits two sides.
   function seed() {
     for (const d of denoms) counts[d] = 0;
-    const divisor = perSide ? 1 : 2;
+    const divisor = isHS ? 1 : 2;
     for (const { plate, count } of platesPerSide(Number(initialDisplay), base, denoms, divisor).perSide) {
       counts[plate] = count;
     }
@@ -115,8 +118,13 @@ function openPlateModal(initialDisplay, { equipment = "", exercise = "" } = {}) 
   const vizLabel = el("div", { class: "muted small plate-viz-label" });
 
   function render() {
-    filterLabel.textContent = perSide ? "Plates on each arm" : "Plates per side";
-    vizLabel.textContent = perSide ? "Each arm" : "Each side";
+    if (isHS) {
+      filterLabel.textContent = loadMode === "perside" ? "Plates per arm" : "Plates loaded (both arms)";
+      vizLabel.textContent = loadMode === "perside" ? "Each arm" : "Both arms";
+    } else {
+      filterLabel.textContent = "Plates per side";
+      vizLabel.textContent = "Each side";
+    }
     for (const d of denoms) countEls[d].textContent = String(counts[d]);
 
     // One sleeve only: bar stub, then plates largest → smallest, left → right.
@@ -127,21 +135,41 @@ function openPlateModal(initialDisplay, { equipment = "", exercise = "" } = {}) 
       }
     }
 
-    const multiplier = perSide ? 1 : 2;
-    const total = totalFromCounts(counts, base, multiplier);
     const loaded = denoms.filter((d) => counts[d] > 0);
     const baseWord = barLike ? "bar" : "start";
     summary.replaceChildren();
+
+    if (isHS) {
+      // base + the plates entered; the toggle decides whether that's one arm or
+      // the whole machine, and we always show both /side and total.
+      const primary = totalFromCounts(counts, base, 1);
+      const perSideVal = loadMode === "perside" ? primary : primary / 2;
+      const totalVal = loadMode === "perside" ? primary * 2 : primary;
+      if (!loaded.length && base <= 0) {
+        summary.append(el("span", { class: "plate-summary-main" }, "Empty"));
+      } else {
+        const word = loadMode === "perside" ? "per arm" : "loaded";
+        const breakdown = loaded.length
+          ? loaded.map((d) => `${counts[d]}× ${fmt(d)} ${unit}`).join(" + ") + ` ${word}`
+          : `Just the ${baseWord}`;
+        summary.append(
+          el("span", { class: "plate-summary-main" }, `${fmt(perSideVal)} ${unit} /side  ·  ${fmt(totalVal)} ${unit} total`),
+          el("div", { class: "muted small" }, breakdown + (base > 0 ? `  ·  + ${fmt(base)} ${unit} ${baseWord}` : "")),
+        );
+      }
+      return;
+    }
+
+    const total = totalFromCounts(counts, base, 2);
     if (!loaded.length) {
       summary.append(el("span", { class: "plate-summary-main" },
-        base > 0 ? `Just the ${baseWord} — ${fmt(base)} ${unit}${perSide ? " /side" : ""}` : "Empty"));
+        base > 0 ? `Just the ${baseWord} — ${fmt(base)} ${unit}` : "Empty"));
     } else {
-      const sleeveWord = perSide ? "on each arm" : "per side";
       summary.append(
-        el("span", { class: "plate-summary-main" }, `${fmt(total)} ${unit}${perSide ? " /side" : " total"}`),
+        el("span", { class: "plate-summary-main" }, `${fmt(total)} ${unit} total`),
         el("div", { class: "muted small" },
           loaded.map((d) => `${counts[d]}× ${fmt(d)} ${unit}`).join(" + ")
-          + ` ${sleeveWord}` + (base > 0 ? `  ·  + ${fmt(base)} ${unit} ${baseWord}` : "")),
+          + " per side" + (base > 0 ? `  ·  + ${fmt(base)} ${unit} ${baseWord}` : "")),
       );
     }
   }
@@ -171,14 +199,22 @@ function openPlateModal(initialDisplay, { equipment = "", exercise = "" } = {}) 
     el("div", { class: "plate-stepper" }, baseInput, el("span", { class: "muted small" }, unit)),
   );
 
-  // Hammer Strength: per-side (iso-lateral) toggle. Persists per exercise.
-  const perSideRow = isHS
-    ? el("label", { class: "plate-row", style: { cursor: "pointer" } },
-        el("span", {}, "Per side (/side)"),
-        el("input", {
-          type: "checkbox", checked: perSide ? true : null,
-          onchange: (e) => { perSide = e.target.checked; if (exercise) setPerSide(exercise, perSide); seed(); render(); },
-        }),
+  // Hammer Strength: how the plates are loaded (each arm vs the whole machine).
+  // Re-interprets the entered plates only; persists the choice per exercise.
+  const modeBtns = {};
+  const setMode = (m) => {
+    loadMode = m;
+    if (exercise) setPerSide(exercise, m === "perside");
+    for (const k in modeBtns) modeBtns[k].classList.toggle("primary", k === loadMode);
+    render();
+  };
+  const modeRow = isHS
+    ? el("div", { class: "plate-row" },
+        el("span", {}, "Loaded"),
+        el("div", { class: "row", style: { gap: "0.4rem" } },
+          (modeBtns.perside = el("button", { type: "button", class: "btn small" + (loadMode === "perside" ? " primary" : ""), onclick: () => setMode("perside") }, "Per side")),
+          (modeBtns.both = el("button", { type: "button", class: "btn small" + (loadMode === "both" ? " primary" : ""), onclick: () => setMode("both") }, "Both")),
+        ),
       )
     : null;
 
@@ -189,7 +225,7 @@ function openPlateModal(initialDisplay, { equipment = "", exercise = "" } = {}) 
         el("button", { type: "button", class: "btn icon", title: "Close", onclick: close }, "×"),
       ),
       baseRow,
-      perSideRow,
+      modeRow,
       filterLabel,
       ...rows,
       vizLabel,
