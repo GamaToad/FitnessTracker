@@ -425,6 +425,16 @@ input[type="number"] {
   margin-bottom: 0.5rem;
 }
 .exercise-head h3 { margin: 0; }
+/* Collapsible "workout focus" pill */
+.focus { display: block; margin-bottom: 0.8rem; }
+.focus-pill {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  border: 1px solid var(--line); background: var(--panel);
+  border-radius: 999px; padding: 0.45rem 0.85rem; cursor: pointer;
+  font-size: 0.88rem; font-weight: 600; color: var(--text); max-width: 100%;
+}
+.focus-pill .dot { color: var(--accent); }
+.focus-pill > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .exercise-meta { font-size: 0.8rem; color: var(--muted); display: flex; gap: 0.6rem; flex-wrap: wrap; }
 .exercise-meta .pill {
   background: var(--panel-2);

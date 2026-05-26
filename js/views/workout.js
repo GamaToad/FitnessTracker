@@ -9,7 +9,7 @@ import { openExercisePicker } from "../exercise-picker.js";
 import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
 import { parseSets } from "../parse-sets.js";
 import { resolveExerciseName } from "../exercise-match.js";
-import { config, isPerSide, setPerSide } from "../config.js";
+import { config, isPerSide, setPerSide, getFocusGroups, setFocusGroups } from "../config.js";
 import { toDisplay, fromDisplay, unitLabel, isDumbbell, dbVolumeFactor, usesPlates } from "../units.js";
 import { platesPerSide, defaultBar, stepperPlates, totalFromCounts } from "../plates.js";
 import { drawDonut } from "../chart.js";
@@ -1040,7 +1040,10 @@ async function renderCustomMode(root, onFinish) {
   const findEntry = (name) => exercises.find((e) => normalizeName(e.exercise) === normalizeName(name));
 
   // Freeform "workout focus": targeted muscle groups + per-session feedback.
-  const targetGroups = new Set();
+  // Seeded from the persisted selection so focus carries across sessions.
+  const targetGroups = new Set(getFocusGroups());
+  let focusOpen = false;
+  const commitFocus = () => { setFocusGroups([...targetGroups]); rerender(); };
   const feedbackState = {};
   const coverageContainer = el("div", {});
   const feedbackContainer = el("div", {});
@@ -1094,30 +1097,47 @@ async function renderCustomMode(root, onFinish) {
 
   const refreshLive = () => { renderCoverage(); renderFeedback(); };
 
+  const shortMuscle = (g) => formatMuscle(g.replace(/^Shoulders \((.*)\)$/, "$1"));
+
+  // Collapsible "workout focus" pill: a compact summary that expands into the
+  // group selector. Selection persists across sessions (commitFocus). Coverage
+  // of the focused groups is tracked in the separate Coverage card.
   function buildFocusCard() {
-    const card = el("section", { class: "card" }, el("h3", {}, "Workout focus"));
+    if (!focusOpen) {
+      const label = targetGroups.size ? "Focus: " + [...targetGroups].map(shortMuscle).join(" · ") : "Set workout focus";
+      return el("div", { class: "focus" },
+        el("button", { type: "button", class: "focus-pill", onclick: () => { focusOpen = true; rerender(); } },
+          el("span", { class: "dot" }, "◎"), el("span", {}, label)));
+    }
+    const card = el("section", { class: "card" },
+      el("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center" } },
+        el("h3", { style: { margin: 0 } }, "Workout focus"),
+        el("button", { type: "button", class: "btn small ghost", onclick: () => { focusOpen = false; rerender(); } }, "Done"),
+      ),
+      el("div", { class: "picker-filter-label" }, "Presets"),
+    );
     const presetRow = el("div", { class: "chip-row" });
     for (const [name, groups] of Object.entries(WORKOUT_PRESETS)) {
       presetRow.append(el("button", { type: "button", class: "filter-chip", onclick: () => {
         targetGroups.clear();
         groups.forEach((g) => targetGroups.add(g));
-        rerender();
+        commitFocus();
       } }, name));
     }
-    card.append(el("div", { class: "picker-filter-label" }, "Presets"), presetRow);
+    card.append(presetRow);
     for (const [region, members] of Object.entries(MUSCLE_REGIONS)) {
       const row = el("div", { class: "chip-row" });
       for (const g of members) {
         row.append(el("button", {
           type: "button",
           class: "filter-chip" + (targetGroups.has(g) ? " active" : ""),
-          onclick: () => { targetGroups.has(g) ? targetGroups.delete(g) : targetGroups.add(g); rerender(); },
-        }, formatMuscle(g.replace(/^Shoulders \((.*)\)$/, "$1"))));
+          onclick: () => { targetGroups.has(g) ? targetGroups.delete(g) : targetGroups.add(g); commitFocus(); },
+        }, shortMuscle(g)));
       }
       card.append(el("div", { class: "picker-filter-label" }, region), row);
     }
     if (targetGroups.size) {
-      card.append(el("button", { class: "btn small ghost", style: { marginTop: "0.4rem" }, onclick: () => { targetGroups.clear(); rerender(); } }, "Clear focus"));
+      card.append(el("button", { class: "btn small ghost", style: { marginTop: "0.4rem" }, onclick: () => { targetGroups.clear(); commitFocus(); } }, "Clear focus"));
     }
     return card;
   }
