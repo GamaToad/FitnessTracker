@@ -5,7 +5,8 @@
 // (open-ended) modes; sections show/hide by ctx capability. Mirrors timer.js as
 // a body-appended singleton toggled with a `.show` class.
 import { el } from "./ui.js";
-import { config } from "./config.js";
+import { config, isPerSide } from "./config.js";
+import { unitLabel } from "./units.js";
 
 const FIELDS = ["weight", "reps", "rir"];
 const FIELD_LABEL = { weight: "Weight", reps: "Reps", rir: "RIR" };
@@ -37,11 +38,30 @@ let els = null;
 let mode = "meso";
 let ctxList = [];
 let activeCtx = null;
-let activeField = "weight";
 let expanded = false;
 let dropdownOpen = false;
 
 const liveCtx = () => (activeCtx && document.contains(activeCtx.cardEl) ? activeCtx : null);
+
+// One labelled stepper column (label · [− input +] · unit) for a field.
+function makeField(f) {
+  const input = el("input", {
+    type: "number", inputmode: "decimal", step: f === "weight" ? "0.5" : "1", class: "sc-value",
+    "aria-label": FIELD_LABEL[f],
+    oninput: (e) => { const c = liveCtx(); if (c) { c.setField(f, e.target.value); paintPanel(); } },
+  });
+  const unit = el("span", { class: "sc-unit muted small" });
+  const wrap = el("div", { class: "sc-field", "data-field": f },
+    el("span", { class: "sc-field-label" }, FIELD_LABEL[f]),
+    el("div", { class: "sc-stepper" },
+      mkBtn("−", `Decrease ${FIELD_LABEL[f]}`, () => bump(f, -1)),
+      input,
+      mkBtn("+", `Increase ${FIELD_LABEL[f]}`, () => bump(f, 1)),
+    ),
+    unit,
+  );
+  return { wrap, input, unit };
+}
 
 function ensureBar() {
   if (barEl) return barEl;
@@ -52,31 +72,22 @@ function ensureBar() {
   const expandBtn = mkBtn("⌃", "More info", toggleExpand);
   const dropdown = el("div", { class: "sc-dropdown" });
 
-  const fieldLabel = el("span", { class: "sc-field-label" }, "Weight");
-  const valueInput = el("input", {
-    type: "number", inputmode: "decimal", step: "0.5", class: "sc-value",
-    oninput: (e) => { const c = liveCtx(); if (c) { c.setField(activeField, e.target.value); paintPanel(); } },
-  });
-  const contextEl = el("span", { class: "sc-context muted small" });
-  const minusBtn = mkBtn("−", "Decrease", () => bump(-1));
-  const plusBtn = mkBtn("+", "Increase", () => bump(1));
+  const fields = {};
+  for (const f of FIELDS) fields[f] = makeField(f);
+
   const typeBtn = el("button", { type: "button", class: "btn small ghost sc-type", onmousedown: pd, onclick: () => { const c = liveCtx(); if (c) { c.cycleType(); paint(); } } });
   const logBtn = el("button", { type: "button", class: "btn small primary sc-log", onmousedown: pd, onclick: doCommit }, "Log set");
   const addBtn = mkBtn("+ set", "Add a set", () => { const c = liveCtx(); if (c) { c.addSet(); paint(); } }, "btn small ghost");
 
   const panel = el("div", { class: "sc-panel" });
 
-  els = { prevBtn, nextBtn, nameBtn, progressEl, expandBtn, dropdown, fieldLabel, valueInput, contextEl, typeBtn, logBtn, addBtn, panel };
+  els = { prevBtn, nextBtn, nameBtn, progressEl, expandBtn, dropdown, fields, typeBtn, logBtn, addBtn, panel };
 
   barEl = el("div", { class: "set-controller idle", role: "group", "aria-label": "Set controller" },
     el("div", { class: "sc-row sc-top" }, prevBtn, nameBtn, progressEl, nextBtn, expandBtn),
     dropdown,
-    el("div", { class: "sc-row sc-main" },
-      mkBtn("◀", "Previous field", () => moveField(-1)),
-      el("div", { class: "sc-readout" }, fieldLabel, valueInput, contextEl),
-      mkBtn("▶", "Next field", () => moveField(1)),
-      minusBtn, plusBtn, typeBtn, addBtn, logBtn,
-    ),
+    el("div", { class: "sc-fields" }, fields.weight.wrap, fields.reps.wrap, fields.rir.wrap),
+    el("div", { class: "sc-row sc-actions" }, typeBtn, addBtn, logBtn),
     panel,
   );
   document.body.append(barEl);
@@ -89,17 +100,10 @@ function mkBtn(label, title, onClick, cls = "btn icon") {
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────────
-function bump(dir) {
+function bump(field, dir) {
   const c = liveCtx();
   if (!c) return;
-  c.setField(activeField, nextValue(activeField, c.field(activeField), c.seedFor(activeField), dir, config.displayUnit));
-  paint();
-}
-function moveField(dir) {
-  let i = FIELDS.indexOf(activeField);
-  if (i === -1) i = 0; // fallback to weight if activeField not found
-  i = Math.max(0, Math.min(FIELDS.length - 1, i + dir));
-  activeField = FIELDS[i];
+  c.setField(field, nextValue(field, c.field(field), c.seedFor(field), dir, config.displayUnit));
   paint();
 }
 function step(dir) {
@@ -132,9 +136,7 @@ function paint() {
   if (!c) {
     els.nameBtn.textContent = ctxList.length ? "Select exercise" : "Add an exercise";
     els.progressEl.textContent = "";
-    els.valueInput.value = "";
-    els.contextEl.textContent = "";
-    els.fieldLabel.textContent = "Weight";
+    for (const f of FIELDS) els.fields[f].input.value = "";
     dropdownOpen = false;
     expanded = false; // reset expanded when no context
     paintDropdown();
@@ -147,11 +149,10 @@ function paint() {
     ? c.activeLabel()
     : (c.hasTarget ? `Set ${p.done + 1} / ${p.target}` : `Set ${p.done + 1}`);
 
-  els.fieldLabel.textContent = FIELD_LABEL[activeField];
-  els.valueInput.value = c.field(activeField);
-  const others = FIELDS.filter((f) => f !== activeField)
-    .map((f) => `${c.field(f) || "–"} ${f === "rir" ? "RIR" : f}`).join(" · ");
-  els.contextEl.textContent = others;
+  for (const f of FIELDS) els.fields[f].input.value = c.field(f);
+  els.fields.weight.unit.textContent = unitLabel() + (isPerSide(c.name) ? " /side" : "");
+  // RIR only applies inside a mesocycle; hide it entirely in freeform/custom.
+  els.fields.rir.wrap.style.display = mode === "custom" ? "none" : "";
 
   const typeLabel = c.typeLabel();
   els.typeBtn.style.display = typeLabel ? "" : "none";
@@ -235,7 +236,6 @@ export function setActiveExercise(ctxOrId) {
   const next = typeof ctxOrId === "string" ? ctxList.find((c) => c.id === ctxOrId) : ctxOrId;
   if (activeCtx && activeCtx !== next && activeCtx.onDeactivate) activeCtx.onDeactivate();
   activeCtx = next || null;
-  activeField = "weight";
   ensureBar();
   if (activeCtx) {
     barEl.classList.add("show");

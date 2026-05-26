@@ -82,3 +82,21 @@ export function setAutoApplyVolume(on) {
   localStorage.setItem("gama.autoApplyVolume", on ? "on" : "off");
   config.autoApplyVolume = !!on;
 }
+
+// Per-exercise "loaded per side" flag (iso-lateral / Hammer Strength). Kept as a
+// local map keyed by lowercased exercise name — it's an equipment trait, not
+// workout data, so it lives next to the other display preferences.
+function perSideMap() {
+  try { return JSON.parse(localStorage.getItem("gama.perSide") || "{}") || {}; }
+  catch { return {}; }
+}
+export function isPerSide(name) {
+  return !!perSideMap()[(name || "").toLowerCase()];
+}
+export function setPerSide(name, on) {
+  const key = (name || "").toLowerCase();
+  if (!key) return;
+  const map = perSideMap();
+  if (on) map[key] = true; else delete map[key];
+  localStorage.setItem("gama.perSide", JSON.stringify(map));
+}

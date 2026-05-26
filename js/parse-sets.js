@@ -13,6 +13,13 @@
 //   ... r<N>       applies RIR N to the group             e.g. 225x5 r2
 //   W x R1/R2/...  weight W, one set per slash-separated rep  e.g. 225x5/5/4
 //   R1/R2/... @ W  weight W, one set per slash-separated rep  e.g. 5/5/4@225
+//   WxR / WxR ...  one set per slash piece, each its OWN weight  e.g.
+//                  185x8 / 190x6 / 195x5  →  three sets at 185, 190, 195
+//
+// The slash is overloaded: between bare rep numbers (225x5/5/4) it is a rep
+// list sharing one weight; between complete W×R / @ tokens it separates whole
+// sets. We pick the set-separator reading only when EVERY slash piece is itself
+// a complete set token, so the rep-list forms above are unaffected.
 //
 // `10x10 @135` is ten sets of 10 reps at 135 (S x R @ W), NOT weight 10 — the
 // `@weight` is what makes the leading number a set count.
@@ -45,6 +52,20 @@ function makeSet(weight, reps, rir) {
 function parseGroup(raw) {
   const seg = raw.trim();
   if (!seg) return { sets: [] };
+
+  // Set-by-set: "WxR / WxR / ..." — only when every slash piece is a complete
+  // set token on its own (so "225x5/5/4" rep-lists fall through to the logic
+  // below). Each piece carries its own weight.
+  const pieces = seg.split("/").map((p) => p.trim());
+  if (pieces.length > 1 && pieces.every((p) => X_FORM.test(p) || AT_FORM.test(p))) {
+    const sets = [];
+    for (const p of pieces) {
+      const res = parseGroup(p);
+      if (res.error) return res;
+      sets.push(...res.sets);
+    }
+    return { sets };
+  }
 
   let m = seg.match(X_FORM);
   if (m) {

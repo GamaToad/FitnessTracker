@@ -9,8 +9,8 @@ import { openExercisePicker } from "../exercise-picker.js";
 import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
 import { parseSets } from "../parse-sets.js";
 import { resolveExerciseName } from "../exercise-match.js";
-import { config } from "../config.js";
-import { toDisplay, fromDisplay, unitLabel, isDumbbell, dbVolumeFactor } from "../units.js";
+import { config, isPerSide, setPerSide } from "../config.js";
+import { toDisplay, fromDisplay, unitLabel, isDumbbell, dbVolumeFactor, usesPlates } from "../units.js";
 import { platesPerSide, defaultBar, stepperPlates, totalFromCounts } from "../plates.js";
 import { drawDonut } from "../chart.js";
 import { planExercise } from "../warmup.js";
@@ -64,12 +64,16 @@ function perfPill(perf, detailed = false) {
 }
 
 // Bottom-sheet plate calculator. Interactive +/- builder: tap each plate
-// denomination up/down (counts are PER SIDE), on a fixed bar, with a live total
-// and a one-side visualization. `initialDisplay` (display unit) auto-loads the
-// nearest achievable load at/below it. Reuses the picker overlay/sheet CSS.
-function openPlateModal(initialDisplay) {
+// denomination up/down (counts are per sleeve), on an editable bar/starting
+// weight, with a live total and a one-side visualization. `initialDisplay`
+// (display unit) auto-loads the nearest achievable load at/below it. For Hammer
+// Strength a "per side" toggle switches the math between a single iso-lateral
+// arm (×1) and a symmetric/altogether load (×2). Reuses the picker CSS.
+function openPlateModal(initialDisplay, { equipment = "", exercise = "" } = {}) {
   const unit = config.displayUnit;
-  const bar = defaultBar(unit);
+  const isHS = (equipment || "").toLowerCase() === "hammer strength";
+  // Barbell/Smith ride on a standard bar; plate-loaded machines start empty.
+  const barLike = ["barbell", "smith machine"].includes((equipment || "").toLowerCase());
   const denoms = stepperPlates(unit);
   const overlay = el("div", { class: "picker-overlay" });
   const close = () => overlay.remove();
@@ -77,21 +81,33 @@ function openPlateModal(initialDisplay) {
 
   const fmt = (x) => (Math.round(x * 100) / 100).toString();
 
-  // Per-side counts, seeded from the suggested weight (auto-load nearest).
+  let base = barLike ? defaultBar(unit) : 0;        // bar / starting weight
+  let perSide = isHS && isPerSide(exercise);        // iso-lateral single arm?
   const counts = {};
-  for (const d of denoms) counts[d] = 0;
-  for (const { plate, count } of platesPerSide(Number(initialDisplay), bar, denoms).perSide) {
-    counts[plate] = count;
+
+  // (Re)seed plate counts from a target weight at/below `initialDisplay`.
+  function seed() {
+    for (const d of denoms) counts[d] = 0;
+    const divisor = perSide ? 1 : 2;
+    for (const { plate, count } of platesPerSide(Number(initialDisplay), base, denoms, divisor).perSide) {
+      counts[plate] = count;
+    }
   }
+  seed();
 
   const countEls = {};
   const viz = el("div", { class: "plate-bar" });
   const summary = el("div", { class: "plate-summary" });
+  const baseLabel = el("span", {});
+  const filterLabel = el("div", { class: "picker-filter-label" });
+  const vizLabel = el("div", { class: "muted small plate-viz-label" });
 
   function render() {
+    filterLabel.textContent = perSide ? "Plates on each arm" : "Plates per side";
+    vizLabel.textContent = perSide ? "Each arm" : "Each side";
     for (const d of denoms) countEls[d].textContent = String(counts[d]);
 
-    // One side only: bar stub, then plates largest → smallest, left → right.
+    // One sleeve only: bar stub, then plates largest → smallest, left → right.
     viz.replaceChildren(el("div", { class: "plate-sleeve" }));
     for (const d of denoms) {
       for (let i = 0; i < counts[d]; i++) {
@@ -99,17 +115,21 @@ function openPlateModal(initialDisplay) {
       }
     }
 
-    const total = totalFromCounts(counts, bar);
+    const multiplier = perSide ? 1 : 2;
+    const total = totalFromCounts(counts, base, multiplier);
     const loaded = denoms.filter((d) => counts[d] > 0);
+    const baseWord = barLike ? "bar" : "start";
     summary.replaceChildren();
     if (!loaded.length) {
-      summary.append(el("span", { class: "plate-summary-main" }, `Just the bar — ${fmt(bar)} ${unit} total`));
+      summary.append(el("span", { class: "plate-summary-main" },
+        base > 0 ? `Just the ${baseWord} — ${fmt(base)} ${unit}${perSide ? " /side" : ""}` : "Empty"));
     } else {
+      const sleeveWord = perSide ? "on each arm" : "per side";
       summary.append(
-        el("span", { class: "plate-summary-main" }, `${fmt(total)} ${unit} total`),
+        el("span", { class: "plate-summary-main" }, `${fmt(total)} ${unit}${perSide ? " /side" : " total"}`),
         el("div", { class: "muted small" },
           loaded.map((d) => `${counts[d]}× ${fmt(d)} ${unit}`).join(" + ")
-          + ` per side  ·  + ${fmt(bar)} ${unit} bar`),
+          + ` ${sleeveWord}` + (base > 0 ? `  ·  + ${fmt(base)} ${unit} ${baseWord}` : "")),
       );
     }
   }
@@ -127,15 +147,40 @@ function openPlateModal(initialDisplay) {
     );
   });
 
+  // Editable bar / starting weight.
+  const baseInput = el("input", {
+    type: "number", inputmode: "decimal", step: "0.5", value: fmt(base),
+    style: { width: "6ch" },
+    oninput: (e) => { base = Number(e.target.value) || 0; seed(); render(); },
+  });
+  baseLabel.textContent = barLike ? "Bar weight" : "Starting weight";
+  const baseRow = el("div", { class: "plate-row" },
+    baseLabel,
+    el("div", { class: "plate-stepper" }, baseInput, el("span", { class: "muted small" }, unit)),
+  );
+
+  // Hammer Strength: per-side (iso-lateral) toggle. Persists per exercise.
+  const perSideRow = isHS
+    ? el("label", { class: "plate-row", style: { cursor: "pointer" } },
+        el("span", {}, "Per side (/side)"),
+        el("input", {
+          type: "checkbox", checked: perSide ? true : null,
+          onchange: (e) => { perSide = e.target.checked; if (exercise) setPerSide(exercise, perSide); seed(); render(); },
+        }),
+      )
+    : null;
+
   overlay.append(
     el("div", { class: "picker-sheet" },
       el("div", { class: "picker-head" },
         el("strong", {}, `Plate calculator (${unit})`),
         el("button", { type: "button", class: "btn icon", title: "Close", onclick: close }, "×"),
       ),
-      el("div", { class: "picker-filter-label" }, "Plates per side"),
+      baseRow,
+      perSideRow,
+      filterLabel,
       ...rows,
-      el("div", { class: "muted small plate-viz-label" }, "Each side"),
+      vizLabel,
       viz,
       summary,
     ),
@@ -605,7 +650,22 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
   const priorSets = history.filter((s) => s.date < today);
 
   const block = el("div", { class: "exercise-block" });
-  block.append(el("div", { class: "exercise-head" }, el("h3", {}, ex.exercise)));
+  // Core details surfaced on the card itself (not just the expand panel).
+  const metaBits = [formatMuscle(ex.muscleGroup)];
+  if (setTarget) metaBits.push(`${setTarget} sets`);
+  metaBits.push(`${analysis.repRange.label} reps`, `${targetRIR} RIR`, `${analysis.rest.label} rest`);
+  if (perDB) metaBits.push("per dumbbell");
+  if (isPerSide(ex.exercise)) metaBits.push("per side");
+  const head = el("div", {},
+    el("h3", {}, ex.exercise),
+    el("div", { class: "exercise-meta muted small" }, metaBits.join(" · ")),
+  );
+  if (prev) {
+    head.append(el("div", { class: "muted small" },
+      `Last ${toDisplay(prev.weight)}×${prev.reps} @ ${prev.rir}`
+      + (suggested ? ` · suggested ${toDisplay(suggested)} ${unitLabel()}` : "")));
+  }
+  block.append(el("div", { class: "exercise-head" }, head));
 
   const setsContainer = el("div", {});
   const drafts = [];
@@ -615,7 +675,7 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
   // leading name in the text is ignored.
   const quickInput = el("input", {
     type: "text", autocomplete: "off",
-    placeholder: "Quick add — e.g. 225x5/5/4 r2",
+    placeholder: "Quick add — e.g. 185x8 / 190x6 / 195x5",
     style: { flex: "1" },
   });
   const errorsContainer = el("div", {});
@@ -698,7 +758,9 @@ async function renderExercise(meso, week, day, ex, setTarget, targetRIR, equipme
       quickInput,
       el("button", { class: "btn small", onclick: applyQuick }, "Parse"),
       el("button", { type: "button", class: "btn small ghost", title: "Plan warm-ups + working sets", onclick: openPlanner }, "Plan"),
-      el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(suggestedDisplay) }, "Plates"),
+      usesPlates(equipment)
+        ? el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(suggestedDisplay, { equipment, exercise: ex.exercise }) }, "Plates")
+        : null,
     );
     return el("div", {}, meta, lines, errorsContainer, actions);
   }
@@ -1169,9 +1231,19 @@ async function renderCustomMode(root, onFinish) {
     const estMax = priorBests.length ? Math.max(...priorBests) : 0;
 
     const block = el("div", { class: "exercise-block" });
+    // Core details on the card (freeform has no RIR).
+    const ref = MUSCLE_REFERENCE[ex.muscleGroup];
+    const metaBits = [formatMuscle(ex.muscleGroup)];
+    if (ref) metaBits.push(`${ref.repRange} reps`, `${ref.rest} rest`);
+    if (perDB) metaBits.push("per dumbbell");
+    if (isPerSide(ex.exercise)) metaBits.push("per side");
+    if (estMax > 0) metaBits.push(`est. 1RM ~${toDisplay(Math.round(estMax * 10) / 10)} ${unitLabel()}`);
     block.append(
       el("div", { class: "exercise-head" },
-        el("h3", {}, ex.exercise),
+        el("div", {},
+          el("h3", {}, ex.exercise),
+          el("div", { class: "exercise-meta muted small" }, metaBits.join(" · ")),
+        ),
         el("button", { class: "btn small danger ghost", onclick: () => { exercises.splice(exercises.indexOf(ex), 1); rerender(); } }, "Remove"),
       ),
     );
@@ -1182,7 +1254,7 @@ async function renderCustomMode(root, onFinish) {
     // unsaved rows for review (any leading name in the text is ignored here).
     const blockQuick = el("input", {
       type: "text", autocomplete: "off",
-      placeholder: "Quick add — e.g. 225x5/5/4 r2",
+      placeholder: "Quick add — e.g. 185x8 / 190x6 / 195x5",
       style: { flex: "1" },
     });
     const blockErrors = el("div", {});
@@ -1257,7 +1329,9 @@ async function renderCustomMode(root, onFinish) {
         blockQuick,
         el("button", { class: "btn small", onclick: applyBlockQuick }, "Parse"),
         el("button", { type: "button", class: "btn small ghost", title: "Plan warm-ups + working sets", onclick: openPlanner }, "Plan"),
-        el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(lastSavedWeightLbs() ? toDisplay(lastSavedWeightLbs()) : "") }, "Plates"),
+        usesPlates(equipment)
+          ? el("button", { type: "button", class: "btn small ghost", title: "Plate calculator", onclick: () => openPlateModal(lastSavedWeightLbs() ? toDisplay(lastSavedWeightLbs()) : "", { equipment, exercise: ex.exercise }) }, "Plates")
+          : null,
       );
       return el("div", {}, meta, lines, blockErrors, actions);
     }
@@ -1328,7 +1402,7 @@ async function renderCustomMode(root, onFinish) {
             el("div", { class: "set-row set-status set-done" + (s.setType === "warmup" ? " set-warmup" : "") },
               el("div", { class: "sc-dot" }, "✓"),
               el("div", { class: "idx" }, i + 1),
-              el("div", { class: "sc-setval" }, `${toDisplay(s.weight)} × ${s.reps} @ ${s.rir}`),
+              el("div", { class: "sc-setval" }, `${toDisplay(s.weight)} × ${s.reps}`),
               el("div", { class: "set-actions" },
                 setTypeTag(s.setType),
                 el("button", { class: "btn small ghost", "aria-label": "Edit set", onclick: () => editLogged(s.id) }, "✏"),
@@ -1338,7 +1412,7 @@ async function renderCustomMode(root, onFinish) {
           );
         } else {
           const active = !editingSetId && i === activeIndex;
-          const vals = (s.weight || s.reps || s.rir) ? `${s.weight || "–"} × ${s.reps || "–"} @ ${s.rir || "–"}` : "—";
+          const vals = (s.weight || s.reps) ? `${s.weight || "–"} × ${s.reps || "–"}` : "—";
           setsContainer.append(
             el("div", { class: "set-row set-status set-draft" + (active ? " active" : ""), onclick: () => selectSet(i) },
               el("div", { class: "sc-dot" }, active ? "●" : "○"),

@@ -509,31 +509,38 @@ input[type="number"] {
   font-weight: 700;
 }
 .sc-progress { flex: none; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.sc-readout {
+/* Three always-visible field steppers (Weight / Reps / RIR). */
+.sc-fields { display: flex; align-items: flex-start; gap: 0.5rem; }
+.sc-field {
   display: flex;
   flex-direction: column;
   align-items: center;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-  line-height: 1.05;
+  gap: 0.2rem;
 }
-.sc-field-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.sc-field-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.sc-stepper { display: flex; align-items: center; gap: 0.3rem; width: 100%; justify-content: center; }
+.sc-stepper .btn.icon { min-width: 44px; min-height: 44px; font-size: 1.2rem; flex: none; }
 .sc-value {
-  width: 5ch;
+  width: 3.5ch;
+  flex: 1 1 auto;
+  max-width: 5ch;
   text-align: center;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-  font-size: 1.1rem;
-  padding: 0.15rem;
+  font-size: 1.4rem;
+  padding: 0.35rem 0.15rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   color: var(--text);
 }
-.sc-context { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.sc-type { flex: none; min-width: 44px; }
+.sc-unit { min-height: 1em; }
+.sc-actions { justify-content: flex-end; }
+.sc-actions .sc-type { margin-right: auto; min-width: 44px; }
 .sc-log { flex: none; }
-.set-controller.idle .sc-readout, .set-controller.idle .sc-progress { opacity: 0.45; }
+.set-controller.idle .sc-fields, .set-controller.idle .sc-progress { opacity: 0.45; }
 /* Exercise dropdown */
 .sc-dropdown {
   display: flex;
@@ -581,9 +588,9 @@ input[type="number"] {
 .set-row.set-draft.active .sc-dot { color: var(--accent); }
 .sc-setval { font-variant-numeric: tabular-nums; }
 /* Reserve space so the fixed controller never covers the last card. */
-body:has(.set-controller.show) main { padding-bottom: 7rem; }
+body:has(.set-controller.show) main { padding-bottom: 10rem; }
 /* Lift the rest timer above the controller when both are visible. */
-body:has(.set-controller.show) .rest-timer-bar { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0)); }
+body:has(.set-controller.show) .rest-timer-bar { bottom: calc(8.5rem + env(safe-area-inset-bottom, 0)); }
 
 /* Banner */
 .banner {

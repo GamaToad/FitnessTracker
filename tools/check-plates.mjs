@@ -70,5 +70,24 @@ if (warmupSets(45).length !== 0) fail("warmupSets(45) should be empty");
   if (totalFromCounts({}, 45) !== 45) fail(`totalFromCounts({},45) → ${totalFromCounts({}, 45)}`);
 }
 
+// Per-side (iso-lateral): divisor 1 loads the FULL entered weight on each arm,
+// from a 0 start. 90 lb /side = 2×45 plates (no halving across two sides).
+{
+  const r = platesPerSide(90, 0, defaultPlates("lb"), 1);
+  if (r.perSide.length !== 1 || r.perSide[0].plate !== 45 || r.perSide[0].count !== 2 || r.loadable !== 90) {
+    fail(`platesPerSide(90, 0, …, 1) → ${JSON.stringify(r)}`);
+  }
+  // The same 90 on a barbell (divisor 2) is only 45/side → 1×45 plate per side.
+  const bar = platesPerSide(90, 0, defaultPlates("lb"), 2);
+  const fortyFives = bar.perSide.find((p) => p.plate === 45)?.count;
+  if (fortyFives !== 1 || bar.loadable !== 90) fail(`platesPerSide(90, 0, …, 2) → ${JSON.stringify(bar)}`);
+}
+
+// totalFromCounts multiplier 1 (per arm): start + 1×Σ(plate×count).
+{
+  if (totalFromCounts({ 45: 1 }, 0, 1) !== 45) fail(`totalFromCounts({45:1},0,1) → ${totalFromCounts({ 45: 1 }, 0, 1)}`);
+  if (totalFromCounts({ 45: 2, 25: 1 }, 0, 1) !== 115) fail(`totalFromCounts({45:2,25:1},0,1) → ${totalFromCounts({ 45: 2, 25: 1 }, 0, 1)}`);
+}
+
 if (failures) { console.error(`\n${failures} plate/warm-up check failure(s).`); process.exit(1); }
 console.log("OK: plate math and warm-up ramps pass.");

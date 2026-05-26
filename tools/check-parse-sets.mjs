@@ -10,8 +10,10 @@ const CASES = [
   { in: "2@225", name: null, sets: [s(225, 2)], errors: 0 },
   { in: "3x8 @185", name: null, sets: [s(185, 8), s(185, 8), s(185, 8)], errors: 0 },
   { in: "225x5, 225x5, 225x4", name: null, sets: [s(225, 5), s(225, 5), s(225, 4)], errors: 0 },
-  { in: "225x5/5/4", name: null, sets: [s(225, 5), s(225, 5), s(225, 4)], errors: 0 },
+  { in: "225x5/5/4", name: null, sets: [s(225, 5), s(225, 5), s(225, 4)], errors: 0 },  // rep-list, shared weight
   { in: "5/5/4@225", name: null, sets: [s(225, 5), s(225, 5), s(225, 4)], errors: 0 },
+  { in: "185x8 / 190x6 / 195x5", name: null, sets: [s(185, 8), s(190, 6), s(195, 5)], errors: 0 },  // set-by-set, own weights
+  { in: "3x8@185 / 3x6@200", name: null, sets: [s(185, 8), s(185, 8), s(185, 8), s(200, 6), s(200, 6), s(200, 6)], errors: 0 },
   { in: "225x5 r2", name: null, sets: [s(225, 5, 2)], errors: 0 },
   { in: "2@225 r2", name: null, sets: [s(225, 2, 2)], errors: 0 },
   { in: "3x8 @185 r1", name: null, sets: [s(185, 8, 1), s(185, 8, 1), s(185, 8, 1)], errors: 0 },

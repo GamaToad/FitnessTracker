@@ -36,6 +36,11 @@ export function formatWeight(lbs) {
 // both implements in tonnage.
 export const isDumbbell = (equipment) => (equipment || "").toLowerCase() === "dumbbell";
 
+// Plate-loaded equipment — the only kinds where a plate calculator is useful.
+// Pin/selectorized machines, cables, bands, kettlebells and bodyweight are not.
+const PLATE_EQUIPMENT = new Set(["barbell", "smith machine", "hammer strength"]);
+export const usesPlates = (equipment) => PLATE_EQUIPMENT.has((equipment || "").toLowerCase());
+
 // Lifts that use a single dumbbell — doubling their volume would overcount.
 const SINGLE_IMPLEMENT = /(single[- ]?arm|one[- ]?arm|concentration|goblet|pullover)/i;
 

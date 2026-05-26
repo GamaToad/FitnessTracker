@@ -15,27 +15,31 @@ export const STEPPER_PLATES_LB = [45, 25, 10, 5];
 export const STEPPER_PLATES_KG = [25, 20, 15, 10, 5];
 export const stepperPlates = (unit) => (unit === "kg" ? STEPPER_PLATES_KG : STEPPER_PLATES_LB);
 
-// Total bar weight from a per-side count map ({ [plate]: count }) on a given bar.
+// Total weight from a per-implement count map ({ [plate]: count }) on a given
+// bar. `multiplier` is how many sleeves the plates load: 2 for a barbell (one
+// per side), 1 for a per-side / iso-lateral implement (each arm counted alone).
 // Pure / Node-testable.
-export function totalFromCounts(counts, barWeight) {
-  let perSide = 0;
+export function totalFromCounts(counts, barWeight, multiplier = 2) {
+  let perSleeve = 0;
   for (const [plate, count] of Object.entries(counts || {})) {
-    perSide += Number(plate) * Number(count || 0);
+    perSleeve += Number(plate) * Number(count || 0);
   }
-  return Math.round((barWeight + perSide * 2) * 100) / 100;
+  return Math.round((barWeight + perSleeve * multiplier) * 100) / 100;
 }
 
-// Greedy plates-per-side to load `target` on a bar of `barWeight`, drawing from
-// `inventory` (plate sizes, unlimited count). Returns:
-//   perSide: [{ plate, count }]  — plates on EACH side, largest first
-//   leftover: weight per side that can't be made with the inventory
-//   loadable: the actual achievable bar weight (<= target)
-export function platesPerSide(target, barWeight, inventory) {
+// Greedy plates-per-sleeve to load `target` on a bar of `barWeight`, drawing
+// from `inventory` (plate sizes, unlimited count). `divisor` splits the load
+// across sleeves: 2 for a barbell (plates go on both sides), 1 for a per-side
+// implement where the entered weight is what sits on a single arm. Returns:
+//   perSide: [{ plate, count }]  — plates on EACH sleeve, largest first
+//   leftover: weight per sleeve that can't be made with the inventory
+//   loadable: the actual achievable total weight (<= target)
+export function platesPerSide(target, barWeight, inventory, divisor = 2) {
   const t = Number(target);
   if (!Number.isFinite(t) || t <= barWeight) {
     return { perSide: [], leftover: 0, loadable: barWeight };
   }
-  const perSideTarget = (t - barWeight) / 2;
+  const perSideTarget = (t - barWeight) / divisor;
   const plates = [...inventory].sort((a, b) => b - a);
   const perSide = [];
   let remaining = perSideTarget;
@@ -48,5 +52,5 @@ export function platesPerSide(target, barWeight, inventory) {
   }
   remaining = Math.round(remaining * 100) / 100;
   const loaded = perSideTarget - remaining;
-  return { perSide, leftover: remaining, loadable: Math.round((barWeight + loaded * 2) * 100) / 100 };
+  return { perSide, leftover: remaining, loadable: Math.round((barWeight + loaded * divisor) * 100) / 100 };
 }
