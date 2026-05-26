@@ -50,6 +50,7 @@ let dropdownOpen = false;
 let fieldsSig = "";   // signature of the currently-rendered field columns
 let manualCollapse = false; // user tapped "Done"; stay collapsed across rerenders
 let lastSig = "";     // signature of the registered exercise list
+let onAddExercise = null; // optional "+ Add exercise" handler for the dropdown
 
 const liveCtx = () => (activeCtx && document.contains(activeCtx.cardEl) ? activeCtx : null);
 
@@ -234,7 +235,7 @@ function paintPanel() {
 
 function paintDropdown() {
   els.dropdown.replaceChildren();
-  els.dropdown.style.display = dropdownOpen && ctxList.length ? "" : "none";
+  els.dropdown.style.display = dropdownOpen && (ctxList.length || onAddExercise) ? "" : "none";
   if (!dropdownOpen) return;
   for (const c of ctxList) {
     const p = c.progress();
@@ -248,6 +249,16 @@ function paintDropdown() {
         onmousedown: pd,
         onclick: () => { dropdownOpen = false; setActiveExercise(c); },
       }, el("span", {}, c.name), el("span", { class: "muted small" }, status)),
+    );
+  }
+  if (onAddExercise) {
+    els.dropdown.append(
+      el("button", {
+        type: "button",
+        class: "sc-dropdown-item sc-dropdown-add",
+        onmousedown: pd,
+        onclick: () => { dropdownOpen = false; paintDropdown(); onAddExercise(); },
+      }, el("span", {}, "+ Add exercise")),
     );
   }
 }
@@ -271,9 +282,10 @@ function buildLegend() {
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
-export function setControllerExercises(list, m) {
+export function setControllerExercises(list, m, opts = {}) {
   mode = m === "custom" ? "custom" : "meso";
   ctxList = list || [];
+  onAddExercise = opts.onAddExercise || null;
   ensureBar();
   if (!ctxList.length) {
     activeCtx = null;

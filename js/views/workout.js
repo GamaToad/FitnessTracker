@@ -6,7 +6,7 @@ import { startRest } from "../timer.js";
 import { setControllerExercises, setActiveExercise, refreshSetController, hideSetController, firstIncomplete, collapseActive } from "../setcontroller.js";
 import { suggestWorkoutNames, detectWorkoutType } from "../workout-name.js";
 import { suggestForGroups, sessionZone } from "../suggest.js";
-import { openExercisePicker } from "../exercise-picker.js";
+import { openExercisePicker, openFocusPicker } from "../exercise-picker.js";
 import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
 import { parseSets } from "../parse-sets.js";
 import { resolveExerciseName } from "../exercise-match.js";
@@ -458,6 +458,15 @@ async function renderMesoMode(root, active, onFinish) {
   const session = defaultSessionState();
   const pastLocations = await data.getPastLocations();
 
+  // Ad-hoc exercises added to a session on the fly (not in the template), kept
+  // per day so switching days doesn't mix them. Used to support "+ Add exercise"
+  // in mesocycle mode.
+  const exerciseLib = await data.getFullExerciseLibrary();
+  const allSetsForFreq = await data.listSets();
+  const freqMap = {};
+  for (const s of allSetsForFreq) freqMap[s.exercise] = (freqMap[s.exercise] || 0) + 1;
+  const adHocByDay = {};
+
   async function loadExistingSession() {
     const existing = await data.getSession(active.id, chosenWeek, chosenDay, isoToday());
     if (existing) {
@@ -557,7 +566,23 @@ async function renderMesoMode(root, active, onFinish) {
 
     const day = template.find((d) => d.index === chosenDay);
     if (!day) return;
-    await renderSession(mesoRoot, active, chosenWeek, day);
+    const adHoc = adHocByDay[day.index] ||= [];
+    const onAddExercise = () => {
+      const focusGroups = [...new Set([...day.exercises, ...adHoc].map((e) => e.muscleGroup).filter(Boolean))];
+      openFocusPicker({
+        exerciseLib,
+        freqMap,
+        focusGroups,
+        exclude: [...day.exercises, ...adHoc].map((e) => e.exercise),
+        onPick: (pick) => {
+          const all = [...day.exercises, ...adHoc];
+          if (all.some((e) => normalizeName(e.exercise) === normalizeName(pick.name))) return toast("Already added", "bad");
+          adHoc.push({ exercise: pick.name, muscleGroup: pick.group || "", index: "adhoc:" + pick.name });
+          rerender();
+        },
+      });
+    };
+    await renderSession(mesoRoot, active, chosenWeek, day, { adHoc, onAddExercise });
 
     // Post-session per-muscle feedback (drives next week's set suggestions).
     const dayMuscles = [...new Set(day.exercises.map((e) => e.muscleGroup).filter(Boolean))];
@@ -699,10 +724,21 @@ function buildFeedbackCard(muscles, state) {
   return card;
 }
 
-async function renderSession(container, meso, week, day) {
+async function renderSession(container, meso, week, day, { adHoc = [], onAddExercise = null } = {}) {
   const plan = await data.getEffectiveWeekPlan(meso.id);
   const weekPlan = plan.filter((p) => p.week === week);
   const eqMap = await data.getEquipmentMap();
+
+  // Restore ad-hoc exercises (added on the fly, not in the template) from this
+  // session's logged sets so they reappear after a refresh.
+  const sessionSets = (await data.listSets()).filter(
+    (s) => s.mesoId === meso.id && String(s.week) === String(week) && String(s.dayIndex) === String(day.index) && s.date === isoToday(),
+  );
+  for (const s of sessionSets) {
+    const inTemplate = day.exercises.some((e) => normalizeName(e.exercise) === normalizeName(s.exercise));
+    const inAdHoc = adHoc.some((e) => normalizeName(e.exercise) === normalizeName(s.exercise));
+    if (!inTemplate && !inAdHoc) adHoc.push({ exercise: s.exercise, muscleGroup: s.muscleGroup || "", index: "adhoc:" + s.exercise });
+  }
 
   const byGroup = {};
   for (const ex of day.exercises) {
@@ -737,14 +773,14 @@ async function renderSession(container, meso, week, day) {
   );
 
   const ctxList = [];
-  for (const ex of day.exercises) {
+  for (const ex of [...day.exercises, ...adHoc]) {
     const setTarget = dayShareForExercise.get(ex.exercise + "|" + ex.index) || 0;
     const equipment = eqMap.get((ex.exercise || "").toLowerCase()) || "";
     const { block, ctx } = await renderExercise(meso, week, day, ex, setTarget, targetRIRForGroup(ex.muscleGroup), equipment);
     container.append(block);
     ctxList.push(ctx);
   }
-  setControllerExercises(ctxList, "meso");
+  setControllerExercises(ctxList, "meso", { onAddExercise });
   setActiveExercise(firstIncomplete() || ctxList[0]);
 }
 
@@ -1343,6 +1379,26 @@ async function renderCustomMode(root, onFinish) {
     rerender();
   }
 
+  // Focus-narrowed exercise picker: chips for the workout focus groups + fuzzy
+  // search + browse-all. Shared by the "Add to workout" card and the set
+  // controller's "+ Add exercise" footer.
+  function openAddExercise() {
+    openFocusPicker({
+      exerciseLib,
+      freqMap,
+      focusGroups: [...targetGroups],
+      exclude: exercises.filter((e) => e.kind !== "cardio").map((e) => e.exercise),
+      includeCardio: true,
+      cardioTypes: CARDIO_TYPES,
+      onPick: (pick) => {
+        if (pick.cardio) return addCardioItem(pick.cardioType);
+        if (exercises.some((e) => e.kind !== "cardio" && e.exercise === pick.name)) return toast("Already added", "bad");
+        exercises.push({ exercise: pick.name, muscleGroup: pick.group || "", sets: [] });
+        rerender();
+      },
+    });
+  }
+
   function rerender() {
     customRoot.replaceChildren();
 
@@ -1400,18 +1456,7 @@ async function renderCustomMode(root, onFinish) {
       el("h3", {}, "Add to workout"),
       el("button", {
         class: "btn primary add-exercise-btn",
-        onclick: () => openExercisePicker({
-          exerciseLib,
-          exclude: exercises.filter((e) => e.kind !== "cardio").map((e) => e.exercise),
-          includeCardio: true,
-          cardioTypes: CARDIO_TYPES,
-          onPick: (pick) => {
-            if (pick.cardio) return addCardioItem(pick.cardioType);
-            if (exercises.some((e) => e.kind !== "cardio" && e.exercise === pick.name)) return toast("Already added", "bad");
-            exercises.push({ exercise: pick.name, muscleGroup: pick.group || "", sets: [] });
-            rerender();
-          },
-        }),
+        onclick: openAddExercise,
       }, "+ Add exercise / cardio"),
       el("div", { class: "row", style: { gap: "0.4rem", marginTop: "0.5rem" } },
         quickEx,
@@ -1447,7 +1492,7 @@ async function renderCustomMode(root, onFinish) {
     }
     const grew = exercises.length > prevExCount;
     prevExCount = exercises.length;
-    setControllerExercises(ctxList, "custom");
+    setControllerExercises(ctxList, "custom", { onAddExercise: openAddExercise });
     if (grew) setActiveExercise(ctxList[ctxList.length - 1]);
 
     customRoot.append(feedbackContainer);

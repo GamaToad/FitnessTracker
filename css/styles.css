@@ -409,6 +409,7 @@ input[type="number"] {
 
 /* Exercise block */
 .exercise-block {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -435,6 +436,17 @@ input[type="number"] {
 .exercise-block.exercise-active {
   border-color: var(--gama-green);
   box-shadow: 0 0 0 1px var(--gama-green);
+}
+/* Folded page-corner (dog-ear) marking the selected/active exercise. */
+.exercise-block.exercise-active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-width: 0 0.9rem 0.9rem 0;
+  border-style: solid;
+  border-color: transparent var(--gama-green) transparent transparent;
+  border-top-right-radius: var(--radius);
 }
 .exercise-block.exercise-active .exercise-head { margin-bottom: 0.6rem; }
 /* Collapsible "workout focus" pill */
@@ -667,6 +679,8 @@ input[type="number"] {
 }
 .sc-dropdown-item:last-child { border-bottom: none; }
 .sc-dropdown-item.active { background: var(--panel-2); }
+/* "+ Add exercise" footer row in the exercise dropdown */
+.sc-dropdown-add { color: var(--accent); font-weight: 700; }
 /* Expanded info panel */
 .sc-panel { display: none; }
 .set-controller.expanded .sc-panel {

@@ -1,5 +1,6 @@
-import { el } from "./ui.js";
+import { el, formatMuscle } from "./ui.js";
 import { EQUIPMENT_TYPES, MUSCLE_REGIONS } from "./rp.js";
+import { suggestForGroups } from "./suggest.js";
 
 function titleCase(s) {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -155,4 +156,82 @@ export function openExercisePicker({ exerciseLib, exclude = [], onPick, includeC
   // Intentionally do NOT autofocus the search box: on mobile that pops up the
   // keyboard and hides the equipment/muscle filter chips. The user taps the
   // search field when they actually want to type.
+}
+
+// Focus-narrowed bottom-sheet picker. Leads with tappable exercise chips for the
+// workout's focus muscle groups (ranked by past usage via suggestForGroups),
+// plus a fuzzy text search across the whole library, plus a "Browse all" escape
+// hatch into the full openExercisePicker. onPick receives { name, group,
+// equipment }; the cardio toggle (if includeCardio) lives in Browse all.
+export function openFocusPicker({ exerciseLib, freqMap = {}, focusGroups = [], exclude = [], includeCardio = false, cardioTypes = [], onPick }) {
+  const excludeSet = new Set(exclude);
+  const overlay = el("div", { class: "picker-overlay" });
+  const close = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+  const pick = (e) => { onPick({ name: e.name, group: e.group, equipment: e.equipment || "" }); close(); };
+
+  const search = el("input", { type: "text", class: "picker-search", placeholder: "Search exercises…", autocomplete: "off" });
+  const list = el("div", { class: "picker-list" });
+
+  // Focus-group suggestion chips (hidden while searching).
+  const chips = el("div", {});
+  function renderChips() {
+    chips.replaceChildren();
+    if (!focusGroups.length) {
+      chips.append(el("p", { class: "muted small picker-empty" }, "No workout focus set — search or browse all below."));
+      return;
+    }
+    const suggested = suggestForGroups(focusGroups, exerciseLib, freqMap, { perGroup: 4, exclude });
+    let any = false;
+    for (const { group, exercises } of suggested) {
+      if (!exercises.length) continue;
+      any = true;
+      const row = el("div", { class: "chip-row" });
+      for (const e of exercises) row.append(el("button", { type: "button", class: "filter-chip", onclick: () => pick(e) }, e.name));
+      chips.append(el("div", { class: "picker-filter-label" }, formatMuscle(group)), row);
+    }
+    if (!any) chips.append(el("p", { class: "muted small picker-empty" }, "Nothing new to suggest for your focus — search or browse all."));
+  }
+  const focusSection = el("div", {}, el("div", { class: "picker-filter-label" }, "For your focus"), chips);
+
+  function renderResults() {
+    const q = search.value.toLowerCase().trim();
+    focusSection.style.display = q ? "none" : "";
+    list.style.display = q ? "" : "none";
+    list.replaceChildren();
+    if (!q) return;
+    const matches = exerciseLib.filter((e) => !excludeSet.has(e.name) && e.name.toLowerCase().includes(q)).slice(0, 40);
+    if (!matches.length) { list.append(el("p", { class: "muted picker-empty" }, "No exercises match.")); return; }
+    for (const e of matches) {
+      const row = el("div", { class: "picker-row" },
+        el("span", { class: "picker-row-name" }, e.name),
+        e.equipment ? el("span", { class: "equipment-pill" }, titleCase(e.equipment)) : null,
+      );
+      row.onclick = () => pick(e);
+      list.append(row);
+    }
+  }
+  search.addEventListener("input", renderResults);
+
+  const browseAll = el("button", {
+    type: "button", class: "btn small ghost", style: { marginTop: "0.5rem" },
+    onclick: () => { close(); openExercisePicker({ exerciseLib, exclude, includeCardio, cardioTypes, onPick }); },
+  }, includeCardio ? "Browse all / cardio" : "Browse all exercises");
+
+  const sheet = el("div", { class: "picker-sheet" },
+    el("div", { class: "picker-head" },
+      el("strong", {}, "Add exercise"),
+      el("button", { type: "button", class: "btn icon", title: "Close", onclick: close }, "×"),
+    ),
+    search,
+    focusSection,
+    list,
+    browseAll,
+  );
+
+  overlay.append(sheet);
+  document.body.append(overlay);
+  renderChips();
+  renderResults();
 }
