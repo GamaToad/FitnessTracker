@@ -4,7 +4,6 @@ import * as sheets from "../sheets.js";
 import * as data from "../data.js";
 import { MUSCLE_GROUPS, EQUIPMENT_TYPES } from "../rp.js";
 import { seedDemoData, removeDemoData } from "../seed.js";
-import { pickSpreadsheet } from "../picker.js";
 
 // A device-link URL points another device at the same workbook. The /link/:id
 // route (app.js) confirms before switching this device's stored sheet ID.
@@ -12,27 +11,111 @@ function deviceLinkUrl(id) {
   return `${location.origin}${location.pathname}#/link/${id}`;
 }
 
-async function linkAndReload(id) {
-  sheets.setSpreadsheetId(id);
-  await run(sheets.ensureTabs(id), { ok: "Linked" });
-  setTimeout(() => location.reload(), 400);
+// Pull a spreadsheet ID out of a scanned/typed value: a #/link/<id> device
+// link, a full Google Sheets URL, or a bare ID. Returns null if none matches.
+function extractSheetId(text) {
+  const s = (text || "").trim();
+  let m = s.match(/#\/link\/([A-Za-z0-9_-]+)/);
+  if (m) return m[1];
+  m = s.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/);
+  if (m) return m[1];
+  if (/^[A-Za-z0-9_-]{20,}$/.test(s)) return s;
+  return null;
 }
 
-// Google Picker accelerator. Best-effort — falls back to a toast pointing at
-// the always-present device-link / paste options if the picker can't run.
-async function findSheetInDrive() {
-  try {
-    const id = await pickSpreadsheet();
-    if (!id) return;
-    await linkAndReload(id);
-  } catch (e) {
-    console.error("Drive picker unavailable:", e);
-    toast("Drive picker isn't available here — use the link or paste an ID instead", "bad");
+// Receiver flow: scan the QR shown by another device (or paste its link/ID),
+// then hand off to the #/link/<id> confirmation view. Pairs with showLinkModal
+// (the sender). Needs no Google setup beyond the existing spreadsheets scope.
+function showScanModal() {
+  const overlay = el("div", { class: "modal-overlay" });
+  const video = el("video", { playsinline: "", muted: "", style: { width: "100%", borderRadius: "8px", background: "#000" } });
+  video.muted = true;
+  const canvas = document.createElement("canvas");
+  const hint = el("p", { class: "muted small" }, "Point your camera at the QR code on your other device.");
+
+  const input = el("input", { type: "text", placeholder: "…or paste the link or sheet ID", style: { width: "100%" } });
+  const linkBtn = el("button", { class: "btn small primary" }, "Link");
+  const doneBtn = el("button", { class: "btn small" }, "Cancel");
+
+  let stream = null;
+  let rafId = 0;
+  let finished = false;
+
+  function cleanup() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
   }
-}
+  function close() { cleanup(); overlay.remove(); }
+  function accept(id) {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    overlay.remove();
+    location.hash = `#/link/${id}`;
+  }
+  function submitText() {
+    const id = extractSheetId(input.value);
+    if (!id) return toast("Couldn't read a sheet link", "bad");
+    accept(id);
+  }
+  linkBtn.onclick = submitText;
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") submitText(); });
+  doneBtn.onclick = close;
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
 
-function findInDriveButton(label = "Find my sheet in Google Drive") {
-  return el("button", { class: "btn", onclick: findSheetInDrive }, label);
+  function scanLoop() {
+    if (finished) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const result = window.jsQR ? window.jsQR(img.data, img.width, img.height) : null;
+      if (result && result.data) {
+        const id = extractSheetId(result.data);
+        if (id) return accept(id);
+      }
+    }
+    rafId = requestAnimationFrame(scanLoop);
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.jsQR) {
+      video.style.display = "none";
+      hint.textContent = "Camera scanning isn't available here — paste the link or sheet ID below.";
+      return;
+    }
+    try {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+      video.srcObject = stream;
+      await video.play();
+      rafId = requestAnimationFrame(scanLoop);
+    } catch (e) {
+      console.error("Camera unavailable:", e);
+      video.style.display = "none";
+      hint.textContent = "Couldn't open the camera — paste the link or sheet ID below.";
+    }
+  }
+
+  overlay.append(
+    el("div", { class: "modal-card" },
+      el("h2", {}, "Scan or enter from another device"),
+      hint,
+      video,
+      el("div", { class: "field", style: { marginTop: "0.75rem" } },
+        el("div", { class: "row" }, input, linkBtn),
+      ),
+      el("div", { class: "btn-row" }, doneBtn),
+    ),
+  );
+  document.body.append(overlay);
+  startCamera();
 }
 
 // Modal showing a copyable device-link plus a scannable QR code for it.
@@ -211,7 +294,10 @@ export async function render(container) {
                 class: "btn primary",
                 onclick: () => showLinkModal(sheetId),
               }, "Link another device"),
-              findInDriveButton("Switch to a different sheet"),
+              el("button", {
+                class: "btn",
+                onclick: () => showScanModal(),
+              }, "Switch sheet (scan or enter)"),
             ),
             el("div", { class: "row", style: { marginTop: "0.75rem" } },
               el("button", {
@@ -236,7 +322,7 @@ export async function render(container) {
           )
         : el("div", {},
             el("p", { class: "muted" },
-              "No sheet linked. Find your existing sheet in Drive, create a fresh workbook, or paste the ID of an existing one."),
+              "No sheet linked. Create a fresh workbook, or link to an existing one from another device by scanning its QR or entering its ID."),
             el("div", { class: "row" },
               el("button", {
                 class: "btn primary",
@@ -247,23 +333,10 @@ export async function render(container) {
                   return id;
                 },
               }, "Create new workbook"),
-              findInDriveButton(),
-            ),
-            el("div", { class: "field", style: { marginTop: "0.75rem" } },
-              el("label", {}, "…or paste an existing spreadsheet ID"),
-              el("div", { class: "row" },
-                el("input", { type: "text", id: "existing-sheet-id", placeholder: "spreadsheet id" }),
-                el("button", {
-                  class: "btn",
-                  onclick: async () => {
-                    const id = document.getElementById("existing-sheet-id").value.trim();
-                    if (!id) return toast("Paste an ID first", "bad");
-                    await run(sheets.ensureTabs(id), { ok: "Linked" });
-                    sheets.setSpreadsheetId(id);
-                    setTimeout(() => location.reload(), 400);
-                  },
-                }, "Link"),
-              ),
+              el("button", {
+                class: "btn",
+                onclick: () => showScanModal(),
+              }, "Scan or enter from another device"),
             ),
           ),
     ),
