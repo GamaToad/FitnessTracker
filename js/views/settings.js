@@ -388,7 +388,11 @@ export async function render(container) {
         fields[k] = inp;
         row.append(el("td", {}, inp));
       }
-      if (activeMeso) row.append(el("td", { class: "muted" }, String(weekVol[g] || 0)));
+      if (activeMeso) {
+        const v = weekVol[g];
+        const total = v ? v.direct + v.indirect : 0;
+        row.append(el("td", { class: "muted" }, total % 1 ? total.toFixed(1) : String(total)));
+      }
       row.append(el("td", {},
         el("button", {
           class: "btn small",

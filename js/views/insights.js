@@ -209,11 +209,12 @@ async function renderVolumeInsights(container, activeMeso) {
   );
   for (const p of planThis) {
     const lm = landmarks[p.muscleGroup];
-    const done = weekVol[p.muscleGroup] || 0;
+    const vol = weekVol[p.muscleGroup];
+    const done = vol ? vol.direct + vol.indirect : 0;
     card.append(el("div", { style: { marginTop: "0.6rem" } },
       el("div", { class: "row", style: { justifyContent: "space-between" } },
         el("strong", {}, formatMuscle(p.muscleGroup)),
-        el("span", { class: "muted small" }, `${done}/${p.targetSets} sets · ${p.targetRIR} RIR`),
+        el("span", { class: "muted small" }, `${done % 1 ? done.toFixed(1) : done}/${p.targetSets} sets · ${p.targetRIR} RIR`),
       ),
       landmarkBar(lm, p.targetSets),
     ));

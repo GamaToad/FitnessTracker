@@ -1,5 +1,5 @@
 import { el, formatMuscle } from "./ui.js";
-import { EQUIPMENT_TYPES, MUSCLE_REGIONS } from "./rp.js";
+import { EQUIPMENT_TYPES, MUSCLE_REGIONS, exerciseSecondary } from "./rp.js";
 import { suggestForGroups } from "./suggest.js";
 
 function titleCase(s) {
@@ -98,9 +98,13 @@ export function openExercisePicker({ exerciseLib, exclude = [], onPick, includeC
       return;
     }
     for (const e of matches) {
+      const secondaryPills = (e.secondary || []).map(
+        (sec) => el("span", { class: "secondary-pill" }, formatMuscle(sec.group)),
+      );
       const row = el("div", { class: "picker-row" },
         el("span", { class: "picker-row-name" }, e.name),
         e.equipment ? el("span", { class: "equipment-pill" }, titleCase(e.equipment)) : null,
+        ...secondaryPills,
       );
       row.onclick = () => {
         onPick({ name: e.name, group: e.group, equipment: e.equipment || "" });

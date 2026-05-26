@@ -8,6 +8,7 @@ import {
   progressSets,
   epley1RM,
   suggestSetAdjustment,
+  exerciseSecondary,
 } from "./rp.js";
 
 export const CUSTOM_MESO_ID = "_custom";
@@ -284,7 +285,8 @@ export async function getVolumeSuggestions(mesoId, week) {
       performance: perfVals.length ? Math.round(perfVals.reduce((a, b) => a + b, 0) / perfVals.length) : 2,
     };
     const prevTarget = effPlan.find((x) => x.week === prevWeek && x.muscleGroup === p.muscleGroup)?.targetSets ?? p.targetSets;
-    const performedSets = prevVol[p.muscleGroup] || 0;
+    const vol = prevVol[p.muscleGroup];
+    const performedSets = vol ? vol.direct + vol.indirect : 0;
     const sug = suggestSetAdjustment({
       feedback: feedbackAvg,
       performedSets,
@@ -559,13 +561,19 @@ export async function deleteCardioEntry(id) {
 }
 
 // Counts how many sets each muscle group has accumulated in a given week.
+// Returns { [group]: { direct, indirect } } where direct = sets targeting
+// this group primarily, indirect = fractional credit from compound exercises.
 export async function weeklyVolume(mesoId, week) {
   const all = await listSets();
   const out = {};
+  const ensure = (g) => (out[g] ||= { direct: 0, indirect: 0 });
   for (const s of all) {
     if (s.mesoId !== mesoId || +s.week !== +week) continue;
     if (s.setType === "warmup") continue;
-    out[s.muscleGroup] = (out[s.muscleGroup] || 0) + 1;
+    ensure(s.muscleGroup).direct += 1;
+    for (const sec of exerciseSecondary(s.exercise)) {
+      ensure(sec.group).indirect += sec.fraction;
+    }
   }
   return out;
 }

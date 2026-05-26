@@ -20,6 +20,7 @@
     "check:planner": "node tools/check-planner.mjs",
     "check:overrides": "node tools/check-overrides.mjs",
     "check:setcontroller": "node tools/check-setcontroller.mjs",
-    "check:workout-name": "node tools/check-workout-name.mjs"
+    "check:workout-name": "node tools/check-workout-name.mjs",
+    "check:secondary": "node tools/check-secondary.mjs"
   }
 }

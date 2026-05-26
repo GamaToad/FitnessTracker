@@ -7,6 +7,7 @@ import { buildVolumeSuggestionCard } from "./workout.js";
 import {
   analyze, sessionBestE1RMs, e1rmTrend, performanceVsNormal, sessionVerdict, fatigueCheck,
 } from "../adaptive.js";
+import { exerciseSecondary } from "../rp.js";
 
 const DIST_COLORS = ["#39b54a", "#4da6ff", "#ffb547", "#c97bff", "#ff5a1f", "#36c4b7", "#f06292", "#9ccc65"];
 const TAB_LS_KEY = "gama.dashTab";
@@ -257,20 +258,26 @@ export async function render(container, { signedIn }) {
       }
 
       const volumeRows = planThisWeek.map((p) => {
-        const done = weekVol[p.muscleGroup] || 0;
-        const pct = Math.min(100, Math.round((done / Math.max(1, p.targetSets)) * 100));
-        const zone = volumeZone(done, landmarks[p.muscleGroup]);
+        const vol = weekVol[p.muscleGroup];
+        const direct = vol ? vol.direct : 0;
+        const indirect = vol ? vol.indirect : 0;
+        const total = direct + indirect;
+        const pct = Math.min(100, Math.round((total / Math.max(1, p.targetSets)) * 100));
+        const directPct = Math.min(100, Math.round((direct / Math.max(1, p.targetSets)) * 100));
+        const zone = volumeZone(total, landmarks[p.muscleGroup]);
+        const volLabel = indirect > 0
+          ? `${direct} + ${Math.round(indirect * 10) / 10} / ${p.targetSets}`
+          : `${direct} / ${p.targetSets}`;
+        const barColor = total >= p.targetSets ? "var(--ok)" : total >= p.targetSets * 0.5 ? "var(--warn)" : "var(--accent)";
         const cells = [
           el("td", { class: "muscle" }, formatMuscle(p.muscleGroup)),
-          el("td", {}, `${done} / ${p.targetSets}`),
+          el("td", {}, volLabel),
           el("td", {}, el("span", { class: "zone-pill", style: { background: zone.color } }, zone.label)),
           el("td", {}, el("span", { class: "rir-pill" }, `${p.targetRIR} RIR`)),
           el("td", {},
-            el("div", { style: { background: "var(--panel-2)", borderRadius: "999px", overflow: "hidden", height: "8px", minWidth: "60px" } },
-              el("div", { style: {
-                background: done >= p.targetSets ? "var(--ok)" : done >= p.targetSets * 0.5 ? "var(--warn)" : "var(--accent)",
-                width: pct + "%", height: "100%",
-              } }),
+            el("div", { style: { background: "var(--panel-2)", borderRadius: "999px", overflow: "hidden", height: "8px", minWidth: "60px", position: "relative" } },
+              el("div", { style: { background: barColor, width: directPct + "%", height: "100%", position: "absolute", left: "0", top: "0" } }),
+              indirect > 0 ? el("div", { style: { background: barColor, opacity: "0.35", width: pct + "%", height: "100%", position: "absolute", left: "0", top: "0" } }) : null,
             ),
           ),
         ];
@@ -286,7 +293,8 @@ export async function render(container, { signedIn }) {
       const weeksLeft = +activeMeso.weeks - week;
       const overMRV = planThisWeek.filter((p) => {
         const lm = landmarks[p.muscleGroup];
-        return lm && lm.MRV && (weekVol[p.muscleGroup] || 0) >= lm.MRV;
+        const v = weekVol[p.muscleGroup];
+        return lm && lm.MRV && v && (v.direct + v.indirect) >= lm.MRV;
       }).map((p) => formatMuscle(p.muscleGroup));
       const deloadMsg = isDeload
         ? "Deload week — recover and resensitize."
@@ -553,13 +561,18 @@ export async function render(container, { signedIn }) {
     // 8-week volume-vs-landmark heatmap.
     const setCountByMuscleWeek = {}; // mg -> [w0..w7]
     let muscleTotals = {};
+    const ensureHeat = (g) => (setCountByMuscleWeek[g] ||= Array(8).fill(0));
     for (const s of workingSets) {
       const mg = s.muscleGroup;
       if (!mg) continue;
       const wi = weeks.findIndex((w) => s.date >= w.start && s.date <= w.end);
       if (wi < 0) continue;
-      (setCountByMuscleWeek[mg] ||= Array(8).fill(0))[wi]++;
+      ensureHeat(mg)[wi]++;
       muscleTotals[mg] = (muscleTotals[mg] || 0) + 1;
+      for (const sec of exerciseSecondary(s.exercise)) {
+        ensureHeat(sec.group)[wi] += sec.fraction;
+        muscleTotals[sec.group] = (muscleTotals[sec.group] || 0) + sec.fraction;
+      }
     }
     const heatMuscles = Object.keys(setCountByMuscleWeek)
       .sort((a, b) => muscleTotals[b] - muscleTotals[a])
@@ -572,11 +585,12 @@ export async function render(container, { signedIn }) {
         map.append(el("div", { class: "vh-label" }, formatMuscle(mg)));
         setCountByMuscleWeek[mg].forEach((n, i) => {
           const zone = volumeZone(n, landmarks[mg]);
+          const display = n ? (n % 1 ? n.toFixed(1) : String(n)) : "";
           map.append(el("div", {
             class: "vh-cell",
-            title: `${formatMuscle(mg)} · week of ${weeks[i].start}: ${n} sets (${zone.label})`,
+            title: `${formatMuscle(mg)} · week of ${weeks[i].start}: ${n % 1 ? n.toFixed(1) : n} sets (${zone.label})`,
             style: { background: zone.color },
-          }, n ? String(n) : ""));
+          }, display));
         });
       }
       grid.append(
@@ -596,7 +610,16 @@ export async function render(container, { signedIn }) {
     // Muscle imbalance ratios (trailing 4 weeks).
     const cutoff = weeks[4].start; // start of the 5th-from-last week → last 4 weeks
     const recent = workingSets.filter((s) => s.date >= cutoff);
-    const sumGroups = (names) => recent.filter((s) => names.includes(s.muscleGroup)).length;
+    const sumGroups = (names) => {
+      let total = 0;
+      for (const s of recent) {
+        if (names.includes(s.muscleGroup)) total += 1;
+        for (const sec of exerciseSecondary(s.exercise)) {
+          if (names.includes(sec.group)) total += sec.fraction;
+        }
+      }
+      return Math.round(total * 10) / 10;
+    };
     const push = sumGroups(["Chest", "Shoulders (front delts)", "Shoulders (side delts)", "Triceps"]);
     const pull = sumGroups(["Back", "Traps", "Shoulders (rear delts)", "Biceps", "Forearms"]);
     const quad = sumGroups(["Quads"]);
@@ -628,12 +651,18 @@ export async function render(container, { signedIn }) {
 
     // Muscle distribution (all-time).
     const mgCounts = {};
-    for (const s of allSets) mgCounts[s.muscleGroup || "Other"] = (mgCounts[s.muscleGroup || "Other"] || 0) + 1;
+    for (const s of allSets) {
+      mgCounts[s.muscleGroup || "Other"] = (mgCounts[s.muscleGroup || "Other"] || 0) + 1;
+      for (const sec of exerciseSecondary(s.exercise)) {
+        mgCounts[sec.group] = (mgCounts[sec.group] || 0) + sec.fraction;
+      }
+    }
     const sorted = Object.entries(mgCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
     const maxCount = sorted[0]?.[1] || 1;
     const distSection = el("section", { class: "card" }, secHead("🧩", "Muscle distribution", "all-time"));
     sorted.forEach(([mg, count], i) => {
-      distSection.append(metricRow(formatMuscle(mg), String(count), Math.round((count / maxCount) * 100), DIST_COLORS[i % DIST_COLORS.length]));
+      const display = count % 1 ? count.toFixed(1) : String(count);
+      distSection.append(metricRow(formatMuscle(mg), display, Math.round((count / maxCount) * 100), DIST_COLORS[i % DIST_COLORS.length]));
     });
     grid.append(distSection);
 

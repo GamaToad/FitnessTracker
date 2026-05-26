@@ -1,7 +1,7 @@
 import { el, isoToday, run, toast, withLoading, defaultSessionState, buildSessionMetaForm, buildWorkoutNameField, confirmModal, stat, normalizeName, formatMuscle } from "../ui.js";
 import * as data from "../data.js";
 import { CUSTOM_MESO_ID } from "../data.js";
-import { distributeSets, suggestSetAdjustment, WORKOUT_PRESETS, MUSCLE_REFERENCE, MUSCLE_REGIONS, restSecondsFor, CARDIO_TYPES } from "../rp.js";
+import { distributeSets, suggestSetAdjustment, WORKOUT_PRESETS, MUSCLE_REFERENCE, MUSCLE_REGIONS, restSecondsFor, CARDIO_TYPES, exerciseSecondary } from "../rp.js";
 import { startRest } from "../timer.js";
 import { setControllerExercises, setActiveExercise, refreshSetController, hideSetController, firstIncomplete, collapseActive } from "../setcontroller.js";
 import { suggestWorkoutNames, detectWorkoutType } from "../workout-name.js";
@@ -1242,10 +1242,15 @@ async function renderCustomMode(root, onFinish) {
 
   const trainedCounts = () => {
     const counts = {};
+    const ensure = (g) => (counts[g] ||= { direct: 0, indirect: 0 });
     for (const ex of exercises) {
       if (ex.kind === "cardio") continue;
       const n = ex.sets.filter((s) => s.saved).length;
-      if (n) counts[ex.muscleGroup] = (counts[ex.muscleGroup] || 0) + n;
+      if (!n) continue;
+      ensure(ex.muscleGroup).direct += n;
+      for (const sec of exerciseSecondary(ex.exercise)) {
+        ensure(sec.group).indirect += n * sec.fraction;
+      }
     }
     return counts;
   };
@@ -1258,20 +1263,28 @@ async function renderCustomMode(root, onFinish) {
     groups.sort((a, b) => (targetGroups.has(b) ? 1 : 0) - (targetGroups.has(a) ? 1 : 0));
     const card = el("section", { class: "card" }, el("h3", {}, "Coverage"));
     for (const g of groups) {
-      const sets = counts[g] || 0;
+      const vol = counts[g] || { direct: 0, indirect: 0 };
+      const direct = vol.direct;
+      const indirect = vol.indirect;
+      const total = direct + indirect;
       const ref = MUSCLE_REFERENCE[g] || { sessionCap: [3, 8], repRange: "", rest: "" };
       const [lo, hi] = ref.sessionCap;
-      const zone = sessionZone(sets, ref.sessionCap);
+      const zone = sessionZone(total, ref.sessionCap);
       const color = zone === "under" ? "var(--warn)" : zone === "over" ? "var(--accent)" : "var(--ok)";
-      const pct = Math.min(100, Math.round((sets / Math.max(1, hi)) * 100));
+      const totalPct = Math.min(100, Math.round((total / Math.max(1, hi)) * 100));
+      const directPct = Math.min(100, Math.round((direct / Math.max(1, hi)) * 100));
+      const setsLabel = indirect > 0
+        ? `${direct} + ${Math.round(indirect * 10) / 10} / ${lo}–${hi}`
+        : `${direct} / ${lo}–${hi} sets`;
       card.append(
         el("div", { style: { marginTop: "0.5rem" } },
           el("div", { class: "row", style: { justifyContent: "space-between" } },
             el("span", {}, el("strong", {}, formatMuscle(g)), targetGroups.has(g) ? null : el("span", { class: "muted small" }, " · extra")),
-            el("span", { class: "muted small" }, `${sets} / ${lo}–${hi} sets`),
+            el("span", { class: "muted small" }, setsLabel),
           ),
-          el("div", { style: { height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden", marginTop: "0.2rem" } },
-            el("div", { style: { width: pct + "%", height: "100%", background: color } }),
+          el("div", { style: { height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden", marginTop: "0.2rem", position: "relative" } },
+            el("div", { style: { width: directPct + "%", height: "100%", background: color, position: "absolute", left: "0", top: "0" } }),
+            indirect > 0 ? el("div", { style: { width: totalPct + "%", height: "100%", background: color, opacity: "0.35", position: "absolute", left: "0", top: "0" } }) : null,
           ),
           ref.repRange ? el("div", { class: "muted small" }, `${ref.repRange} reps · ${ref.rest} rest`) : null,
         ),
@@ -1282,7 +1295,8 @@ async function renderCustomMode(root, onFinish) {
 
   function renderFeedback() {
     feedbackContainer.replaceChildren();
-    const muscles = Object.keys(trainedCounts());
+    const counts = trainedCounts();
+    const muscles = Object.keys(counts).filter((g) => counts[g].direct > 0);
     if (!muscles.length) return;
     for (const m of muscles) if (!feedbackState[m]) feedbackState[m] = { pump: 1, soreness: 1, jointPain: 0, performance: 2 };
     feedbackContainer.append(buildFeedbackCard(muscles, feedbackState));
@@ -1382,7 +1396,8 @@ async function renderCustomMode(root, onFinish) {
   }
 
   const nameContext = () => {
-    const groups = Object.keys(trainedCounts());
+    const counts = trainedCounts();
+    const groups = Object.keys(counts).filter((g) => counts[g].direct > 0);
     return { startTime: session.startTime, location: session.location, type: detectWorkoutType(groups), groups };
   };
 
@@ -1394,7 +1409,8 @@ async function renderCustomMode(root, onFinish) {
       await openNameSuggestions({ session, context: nameContext() });
     }
     await saveSessionMeta();
-    const muscles = Object.keys(trainedCounts());
+    const finishCounts = trainedCounts();
+    const muscles = Object.keys(finishCounts).filter((g) => finishCounts[g].direct > 0);
     if (muscles.length) {
       await run(data.logSessionFeedback({
         mesoId: CUSTOM_MESO_ID, week: 0, dayIndex: 0, date: isoToday(),
@@ -1924,10 +1940,13 @@ export async function renderSummary(container, mesoId, date, onBack) {
     byExercise.get(s.exercise).push(s);
   }
 
-  // Muscles
+  // Muscles (direct + indirect secondary credits)
   const muscleMap = {};
   for (const s of todaySets) {
     muscleMap[s.muscleGroup] = (muscleMap[s.muscleGroup] || 0) + 1;
+    for (const sec of exerciseSecondary(s.exercise)) {
+      muscleMap[sec.group] = (muscleMap[sec.group] || 0) + sec.fraction;
+    }
   }
 
   // Volume (dumbbell sets count both implements)
@@ -2044,7 +2063,7 @@ export async function renderSummary(container, mesoId, date, onBack) {
   } else {
     summary.append(
       el("div", { class: "history-muscles", style: { justifyContent: "center", marginBottom: "0.75rem" } },
-        ...muscleEntries.map(([g, n]) => el("span", { class: "pill small" }, `${formatMuscle(g)} (${n})`)),
+        ...muscleEntries.map(([g, n]) => el("span", { class: "pill small" }, `${formatMuscle(g)} (${n % 1 ? n.toFixed(1) : n})`)),
       ),
     );
   }

@@ -903,6 +903,15 @@ body:has(.set-controller.show) .rest-timer-bar { bottom: calc(8.5rem + env(safe-
   border-radius: 999px;
   padding: 0.15rem 0.5rem;
 }
+.secondary-pill {
+  flex: 0 0 auto;
+  font-size: 0.6rem;
+  color: var(--muted);
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  margin-left: 0.15rem;
+}
 .picker-empty { padding: 1rem 0.3rem; }
 .add-exercise-btn { width: 100%; }
 .picker-input-row { display: flex; gap: 0.4rem; }
