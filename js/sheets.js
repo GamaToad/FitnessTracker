@@ -133,6 +133,10 @@ const TABS = {
     title: "ExerciseOverrides",
     headers: ["exercise", "progressionRate", "repMin", "repMax", "targetRIR", "updatedAt"],
   },
+  weeklyGoals: {
+    title: "WeeklyGoals",
+    headers: ["weekStart", "weekday", "dayName", "groups"],
+  },
 };
 
 export function getSpreadsheetId() {

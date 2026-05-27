@@ -3,6 +3,7 @@ import * as auth from "./auth.js";
 import { route, dispatch, onRender, currentHash } from "./router.js";
 import * as dashboard from "./views/dashboard.js";
 import * as meso from "./views/meso.js";
+import * as goals from "./views/goals.js";
 import * as workout from "./views/workout.js";
 import * as history from "./views/history.js";
 import * as settings from "./views/settings.js";
@@ -19,7 +20,7 @@ let syncCount = 0;
 function setActiveTab() {
   const hash = currentHash();
   const tab =
-    hash.startsWith("#/meso") ? "meso" :
+    hash.startsWith("#/meso") || hash.startsWith("#/plan") ? "meso" :
     hash.startsWith("#/workout") ? "workout" :
     hash.startsWith("#/history") ? "history" :
     hash.startsWith("#/settings") ? "settings" : "dashboard";
@@ -105,6 +106,7 @@ function wrap(fn) {
 
 route("/", wrap(async (root, _p, state) => dashboard.render(root, state)));
 route("/meso", wrap(async (root) => meso.renderList(root)));
+route("/plan/weekly", wrap(async (root) => goals.render(root)));
 route("/meso/new", wrap(async (root) => meso.renderNew(root)));
 route("/meso/:id", wrap(async (root, p) => meso.renderDetail(root, p.id)));
 route("/workout", wrap(async (root) => workout.render(root)));

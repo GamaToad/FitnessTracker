@@ -160,10 +160,25 @@ export async function renderList(container) {
   const mesos = await data.listMesocycles();
   container.append(
     el("div", { class: "section-title" },
-      el("h1", {}, "Mesocycles"),
+      el("h1", {}, "Plan"),
       el("a", { class: "btn primary", href: "#/meso/new" }, "+ New mesocycle"),
     ),
   );
+
+  // Weekly Muscle Goals — the lightweight alternative to a full mesocycle.
+  container.append(
+    el("a", { class: "card", href: "#/plan/weekly", style: { display: "block" } },
+      el("div", { class: "card-row" },
+        el("div", {},
+          el("strong", {}, "Weekly Muscle Goals"),
+          el("div", { class: "muted small" }, "Light meso — pick training days & muscles, auto-split your weekly sets"),
+        ),
+        el("span", { class: "muted" }, "›"),
+      ),
+    ),
+  );
+
+  container.append(el("h2", { style: { marginTop: "1.2rem" } }, "Mesocycles"));
   if (!mesos.length) {
     container.append(el("p", { class: "muted" }, "No mesocycles yet."));
     return;

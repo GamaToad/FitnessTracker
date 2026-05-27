@@ -6,6 +6,7 @@ import { startRest } from "../timer.js";
 import { setControllerExercises, setActiveExercise, refreshSetController, hideSetController, firstIncomplete, collapseActive } from "../setcontroller.js";
 import { suggestWorkoutNames, detectWorkoutType } from "../workout-name.js";
 import { suggestForGroups, sessionZone } from "../suggest.js";
+import { mondayOf, pendingDayForToday } from "../goals.js";
 import { openExercisePicker, openFocusPicker } from "../exercise-picker.js";
 import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
 import { parseSets } from "../parse-sets.js";
@@ -1146,6 +1147,17 @@ async function renderCustomMode(root, onFinish) {
   const allSets = await data.listSets();
   const freqMap = {};
   for (const s of allSets) freqMap[s.exercise] = (freqMap[s.exercise] || 0) + 1;
+
+  // Weekly Muscle Goals: the day prescribed for today, with missed-day rollover
+  // (prior days this week that logged a custom workout consume earlier plan days).
+  const todayIso = isoToday();
+  const weekStartIso = mondayOf(todayIso);
+  const weeklyPlan = await data.getEffectiveWeeklyPlan(weekStartIso);
+  const priorDaysThisWeek = new Set(
+    allSets.filter((s) => s.mesoId === CUSTOM_MESO_ID && s.date >= weekStartIso && s.date < todayIso).map((s) => s.date),
+  );
+  const prescribed = pendingDayForToday(weeklyPlan, priorDaysThisWeek.size);
+
   const todaySets = allSets
     .filter((s) => s.mesoId === CUSTOM_MESO_ID && s.date === isoToday())
     .sort((a, b) => (+a.setNumber || 0) - (+b.setNumber || 0));
@@ -1233,7 +1245,9 @@ async function renderCustomMode(root, onFinish) {
 
   // Freeform "workout focus": targeted muscle groups + per-session feedback.
   // Seeded from the persisted selection so focus carries across sessions.
-  const targetGroups = new Set(getFocusGroups());
+  const persistedFocus = getFocusGroups();
+  const targetGroups = new Set(persistedFocus.length ? persistedFocus : (prescribed ? prescribed.groups : []));
+  if (!persistedFocus.length && prescribed && prescribed.groups.length) setFocusGroups([...targetGroups]);
   let focusOpen = false;
   const commitFocus = () => { setFocusGroups([...targetGroups]); rerender(); };
   const feedbackState = {};
@@ -1305,6 +1319,29 @@ async function renderCustomMode(root, onFinish) {
   const refreshLive = () => { renderCoverage(); renderFeedback(); };
 
   const shortMuscle = (g) => formatMuscle(g.replace(/^Shoulders \((.*)\)$/, "$1"));
+
+  // Header announcing today's prescribed day from the Weekly Muscle Goals plan,
+  // with an "Apply" affordance when the live focus doesn't already match it.
+  function buildTodayPlanCard() {
+    if (!prescribed) return null;
+    const name = prescribed.dayName || detectWorkoutType(prescribed.groups) || "Today's plan";
+    const groupsLabel = prescribed.groups.map(shortMuscle).join(" · ");
+    const applied = prescribed.groups.length === targetGroups.size
+      && prescribed.groups.every((g) => targetGroups.has(g));
+    return el("section", { class: "card", style: { borderColor: "var(--gama-green)" } },
+      el("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center" } },
+        el("div", {},
+          el("div", { class: "muted small" }, "Today’s plan"),
+          el("strong", { style: { fontSize: "1.1rem" } }, name),
+        ),
+        applied ? null : el("button", {
+          class: "btn small primary",
+          onclick: () => { targetGroups.clear(); prescribed.groups.forEach((g) => targetGroups.add(g)); commitFocus(); },
+        }, "Apply"),
+      ),
+      groupsLabel ? el("div", { class: "muted small", style: { marginTop: "0.3rem" } }, groupsLabel) : null,
+    );
+  }
 
   // Collapsible "workout focus" pill: a compact summary that expands into the
   // group selector. Selection persists across sessions (commitFocus). Coverage
@@ -1469,6 +1506,9 @@ async function renderCustomMode(root, onFinish) {
       startBar.append(el("button", { class: "btn primary", onclick: startWorkout }, "Start workout"));
     }
     customRoot.append(startBar);
+
+    const todayPlanCard = buildTodayPlanCard();
+    if (todayPlanCard) customRoot.append(todayPlanCard);
 
     if (!started) {
       customRoot.append(el("p", { class: "muted", style: { marginTop: "1rem" } },

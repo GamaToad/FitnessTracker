@@ -10,6 +10,7 @@ import {
   suggestSetAdjustment,
   exerciseSecondary,
 } from "./rp.js";
+import { resolvePlanForWeek } from "./goals.js";
 
 export const CUSTOM_MESO_ID = "_custom";
 
@@ -62,6 +63,36 @@ export async function saveLandmark(muscleGroup, values) {
     ...values,
   });
   invalidate("landmarks");
+}
+
+// ── Weekly Muscle Goals ("light meso") ──
+// Day rows live in the WeeklyGoals tab. weekStart === "" is the recurring
+// default plan; a Monday ISO date is a per-week override for that week.
+
+export async function getWeeklyGoals() {
+  return cached("weeklyGoals", () => sheets.readAll("weeklyGoals"));
+}
+
+// The ordered training days that apply to the given week (override rows for that
+// week, else the recurring default). Returns day objects with parsed groups.
+export async function getEffectiveWeeklyPlan(weekStart = "") {
+  const rows = await getWeeklyGoals();
+  return resolvePlanForWeek(rows, weekStart);
+}
+
+// Replace one weekStart bucket (default or a specific week) with `days`, leaving
+// other buckets untouched. `days` is [{ weekday, dayName, groups[] }].
+export async function saveWeeklyPlan(days, { weekStart = "" } = {}) {
+  const all = await sheets.readAll("weeklyGoals");
+  const kept = all.filter((r) => (r.weekStart || "") !== weekStart);
+  const fresh = (days || []).map((d) => ({
+    weekStart,
+    weekday: d.weekday,
+    dayName: d.dayName || "",
+    groups: (d.groups || []).join("|"),
+  }));
+  await sheets.replaceAll("weeklyGoals", [...kept, ...fresh]);
+  invalidate("weeklyGoals");
 }
 
 // Mesocycles.

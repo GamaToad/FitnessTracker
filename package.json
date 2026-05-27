@@ -21,6 +21,7 @@
     "check:overrides": "node tools/check-overrides.mjs",
     "check:setcontroller": "node tools/check-setcontroller.mjs",
     "check:workout-name": "node tools/check-workout-name.mjs",
-    "check:secondary": "node tools/check-secondary.mjs"
+    "check:secondary": "node tools/check-secondary.mjs",
+    "check:goals": "node tools/check-goals.mjs"
   }
 }

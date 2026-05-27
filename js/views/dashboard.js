@@ -7,7 +7,9 @@ import { buildVolumeSuggestionCard } from "./workout.js";
 import {
   analyze, sessionBestE1RMs, e1rmTrend, performanceVsNormal, sessionVerdict, fatigueCheck,
 } from "../adaptive.js";
-import { exerciseSecondary } from "../rp.js";
+import { exerciseSecondary, MUSCLE_REFERENCE } from "../rp.js";
+import { sessionZone } from "../suggest.js";
+import { mondayOf, weekdayIndex, distributeWeeklyGoal, weeklyGoalWarnings, WEEKDAYS } from "../goals.js";
 
 const DIST_COLORS = ["#39b54a", "#4da6ff", "#ffb547", "#c97bff", "#ff5a1f", "#36c4b7", "#f06292", "#9ccc65"];
 const TAB_LS_KEY = "gama.dashTab";
@@ -160,6 +162,13 @@ export async function render(container, { signedIn }) {
     data.getRecentPRs(999),
     data.getPersonalRecords(),
   ]);
+
+  // Weekly Muscle Goals ("light meso") for the current calendar week.
+  const weekStartIso = mondayOf(today);
+  const weekEndDate = new Date(weekStartIso + "T00:00:00");
+  weekEndDate.setDate(weekEndDate.getDate() + 6);
+  const weekEndIso = weekEndDate.toISOString().slice(0, 10);
+  const weeklyPlan = await data.getEffectiveWeeklyPlan(weekStartIso);
 
   // --- Quick stats ---
   const thisMonth = today.slice(0, 7);
@@ -352,6 +361,71 @@ export async function render(container, { signedIn }) {
           el("a", { class: "btn primary", href: "#/meso/new" }, "Plan a mesocycle"),
         ),
       );
+    }
+
+    // ── Weekly Muscle Goals ("light meso") ──
+    if (weeklyPlan.length) {
+      const todayWd = weekdayIndex(today);
+      const dist = distributeWeeklyGoal(weeklyPlan, landmarks);
+
+      // Sets logged this calendar week, direct + fractional secondary credit.
+      const logged = {};
+      const ensure = (g) => (logged[g] ||= { direct: 0, indirect: 0 });
+      for (const s of workingSets) {
+        if (s.date < weekStartIso || s.date > weekEndIso) continue;
+        if (s.muscleGroup) ensure(s.muscleGroup).direct += 1;
+        for (const sec of exerciseSecondary(s.exercise)) ensure(sec.group).indirect += sec.fraction;
+      }
+
+      const card = el("section", { class: "card" },
+        el("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center" } },
+          el("h2", { style: { margin: 0 } }, "Weekly Muscle Goals"),
+          el("a", { class: "btn small ghost", href: "#/plan/weekly" }, "Edit"),
+        ),
+      );
+
+      // Day schedule with today highlighted.
+      const sched = el("div", { class: "chip-row", style: { marginTop: "0.5rem" } });
+      for (const d of weeklyPlan) {
+        const label = `${WEEKDAYS[d.weekday]}${d.dayName ? " · " + d.dayName : ""}`;
+        sched.append(el("span", {
+          class: "filter-chip" + (d.weekday === todayWd ? " active" : ""),
+          style: { cursor: "default" },
+        }, label));
+      }
+      card.append(sched);
+
+      // Per-muscle weekly progress vs target.
+      const muscles = Object.keys(dist).sort();
+      for (const m of muscles) {
+        const target = dist[m].target;
+        const v = logged[m] || { direct: 0, indirect: 0 };
+        const total = v.direct + v.indirect;
+        const zone = sessionZone(total, [Math.max(1, Math.round(target * 0.85)), target]);
+        const color = zone === "under" ? "var(--warn)" : zone === "over" ? "var(--ok)" : "var(--ok)";
+        const pct = Math.min(100, Math.round((total / Math.max(1, target)) * 100));
+        const setsLabel = v.indirect > 0
+          ? `${v.direct} + ${Math.round(v.indirect * 10) / 10} / ${target}`
+          : `${v.direct} / ${target}`;
+        card.append(
+          el("div", { style: { marginTop: "0.5rem" } },
+            el("div", { class: "row", style: { justifyContent: "space-between" } },
+              el("strong", {}, formatMuscle(m)),
+              el("span", { class: "muted small" }, setsLabel),
+            ),
+            el("div", { style: { height: "6px", background: "rgba(255,255,255,0.1)", borderRadius: "3px", overflow: "hidden", marginTop: "0.2rem" } },
+              el("div", { style: { width: pct + "%", height: "100%", background: color } }),
+            ),
+          ),
+        );
+      }
+
+      for (const w of weeklyGoalWarnings(weeklyPlan, landmarks, MUSCLE_REFERENCE)) {
+        if (w.level !== "warn") continue;
+        card.append(el("div", { class: "banner warn", style: { marginTop: "0.6rem", marginBottom: 0 } }, w.msg));
+      }
+
+      body.append(card);
     }
 
     const grid = el("div", { class: "dash-grid" });
