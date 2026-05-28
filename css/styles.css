@@ -873,6 +873,11 @@ body:has(.set-controller.show) .rest-timer-bar { bottom: calc(8.5rem + env(safe-
   border-color: var(--accent);
   color: #fff;
 }
+.filter-chip.picker-top-pick {
+  border-color: var(--gama-green, #39b54a);
+  color: var(--gama-green, #39b54a);
+  font-weight: 600;
+}
 .picker-count {
   font-size: 0.75rem;
   color: var(--muted);

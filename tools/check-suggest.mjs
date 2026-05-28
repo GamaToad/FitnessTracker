@@ -36,6 +36,26 @@ const lib = [
   if (res.length !== 2 || res[1].group !== "Biceps") fail("multi-group shape");
 }
 
+// Growth score floats a less-used but faster-growing lift above a slightly
+// more-used staple.
+{
+  const freq = { "Barbell Bench Press": 8, "Incline Dumbbell Press": 3 };
+  const growth = { "Incline Dumbbell Press": 0.9 };
+  const [chest] = suggestForGroups(["Chest"], lib, freq, { perGroup: 2, growthMap: growth });
+  if (chest.exercises[0].name !== "Incline Dumbbell Press") {
+    fail(`growth blend: got ${chest.exercises[0].name} (expected Incline Dumbbell Press)`);
+  }
+}
+// But a runaway-frequency lift still wins over a single high-growth one.
+{
+  const freq = { "Barbell Bench Press": 30, "Cable Fly": 1 };
+  const growth = { "Cable Fly": 1.0 };
+  const [chest] = suggestForGroups(["Chest"], lib, freq, { perGroup: 1, growthMap: growth });
+  if (chest.exercises[0].name !== "Barbell Bench Press") {
+    fail(`growth doesn't override large freq gap: ${chest.exercises[0].name}`);
+  }
+}
+
 // Zones against [3, 8].
 const Z = (n) => sessionZone(n, [3, 8]);
 if (Z(2) !== "under") fail(`zone 2 → ${Z(2)}`);

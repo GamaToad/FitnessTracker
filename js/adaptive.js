@@ -599,6 +599,31 @@ function detectFatigue(topSets, allSets) {
   return result;
 }
 
+// Personal growth score for an exercise on a 0..1 scale, blending the
+// engine's measured progression rate and the recent e1RM slope. Used by
+// suggest.js to surface lifts that have been growing fastest *for this user*,
+// not just the most-used lift. Returns null when there isn't enough history
+// (< MIN_SESSIONS_LEARNING sessions) — so callers can fall back to freq-only.
+export function growthScore(exerciseName, allSets) {
+  if (!allSets || allSets.length < 2) return null;
+  const sessions = groupIntoSessions(allSets);
+  if (sessions.length < MIN_SESSIONS_LEARNING) return null;
+  const topSets = sessions.map(topSetOfSession);
+  const rate = computeProgressionRate(topSets);
+  const bests = sessions.map(bestE1RMOf).filter((v) => v > 0);
+  const window = bests.slice(-6);
+  let slope = 0;
+  if (window.length >= 2 && window[0] > 0) {
+    slope = (window[window.length - 1] - window[0]) / window[0];
+  }
+  // Rate is clamped to [0, 0.05] inside computeProgressionRate, so / 0.05 → [0..1].
+  const rateScore = rate == null ? 0 : Math.max(0, Math.min(1, rate / 0.05));
+  // Map a ±10% slope window to [0..1].
+  const slopeScore = Math.max(0, Math.min(1, (slope + 0.05) / 0.15));
+  return Math.max(0, Math.min(1, 0.6 * rateScore + 0.4 * slopeScore));
+}
+
+
 // Compute average intra-session performance drop-off.
 // Measures how much weight drops from set 1 to last set within sessions.
 function computeIntraSessionDropoff(sessions) {

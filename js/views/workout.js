@@ -8,7 +8,7 @@ import { suggestWorkoutNames, detectWorkoutType } from "../workout-name.js";
 import { suggestForGroups, sessionZone } from "../suggest.js";
 import { mondayOf, pendingDayForToday } from "../goals.js";
 import { openExercisePicker, openFocusPicker } from "../exercise-picker.js";
-import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs } from "../adaptive.js";
+import { analyze, adaptiveSuggestWeight, performanceReason, sessionVerdict, e1rmTrend, sessionBestE1RMs, growthScore } from "../adaptive.js";
 import { parseSets } from "../parse-sets.js";
 import { resolveExerciseName } from "../exercise-match.js";
 import { config, isPerSide, setPerSide, getFocusGroups, setFocusGroups } from "../config.js";
@@ -514,7 +514,16 @@ async function renderMesoMode(root, active, onFinish) {
   const exerciseLib = await data.getFullExerciseLibrary();
   const allSetsForFreq = await data.listSets();
   const freqMap = {};
-  for (const s of allSetsForFreq) freqMap[s.exercise] = (freqMap[s.exercise] || 0) + 1;
+  const setsByEx = {};
+  for (const s of allSetsForFreq) {
+    freqMap[s.exercise] = (freqMap[s.exercise] || 0) + 1;
+    if (s.setType !== "warmup") (setsByEx[s.exercise] ||= []).push(s);
+  }
+  const growthMap = {};
+  for (const [name, sets] of Object.entries(setsByEx)) {
+    const g = growthScore(name, sets);
+    if (g != null) growthMap[name] = g;
+  }
   const adHocByDay = {};
 
   async function loadExistingSession() {
@@ -622,6 +631,7 @@ async function renderMesoMode(root, active, onFinish) {
       openFocusPicker({
         exerciseLib,
         freqMap,
+        growthMap,
         focusGroups,
         exclude: [...day.exercises, ...adHoc].map((e) => e.exercise),
         onPick: (pick) => {
@@ -1168,7 +1178,16 @@ async function renderCustomMode(root, onFinish) {
   // the user can continue after a refresh.
   const allSets = await data.listSets();
   const freqMap = {};
-  for (const s of allSets) freqMap[s.exercise] = (freqMap[s.exercise] || 0) + 1;
+  const setsByExCustom = {};
+  for (const s of allSets) {
+    freqMap[s.exercise] = (freqMap[s.exercise] || 0) + 1;
+    if (s.setType !== "warmup") (setsByExCustom[s.exercise] ||= []).push(s);
+  }
+  const growthMap = {};
+  for (const [name, sets] of Object.entries(setsByExCustom)) {
+    const g = growthScore(name, sets);
+    if (g != null) growthMap[name] = g;
+  }
 
   // Weekly Muscle Goals: the day prescribed for today, with missed-day rollover
   // (prior days this week that logged a custom workout consume earlier plan days).
@@ -1411,20 +1430,24 @@ async function renderCustomMode(root, onFinish) {
   function buildSuggestions() {
     if (!targetGroups.size) return null;
     const exclude = exercises.map((e) => e.exercise);
-    const suggested = suggestForGroups([...targetGroups], exerciseLib, freqMap, { perGroup: 3, exclude });
+    const suggested = suggestForGroups([...targetGroups], exerciseLib, freqMap, { perGroup: 3, exclude, growthMap });
     const card = el("section", { class: "card" }, el("h3", {}, "Suggested exercises"));
     let any = false;
     for (const { group, exercises: list } of suggested) {
       if (!list.length) continue;
       any = true;
       const row = el("div", { class: "chip-row" });
-      for (const e of list) {
-        row.append(el("button", { type: "button", class: "filter-chip", onclick: () => {
-          if (exercises.some((x) => normalizeName(x.exercise) === normalizeName(e.name))) return toast("Already added", "bad");
-          exercises.push({ exercise: e.name, muscleGroup: e.group, sets: [] });
-          rerender();
-        } }, e.name));
-      }
+      list.forEach((e, i) => {
+        const isPick = i === 0 && growthMap[e.name] != null;
+        row.append(el("button", { type: "button",
+          class: "filter-chip" + (isPick ? " picker-top-pick" : ""),
+          title: isPick ? "Top pick — growing fastest for you in this muscle" : undefined,
+          onclick: () => {
+            if (exercises.some((x) => normalizeName(x.exercise) === normalizeName(e.name))) return toast("Already added", "bad");
+            exercises.push({ exercise: e.name, muscleGroup: e.group, sets: [] });
+            rerender();
+          } }, isPick ? "★ " + e.name : e.name));
+      });
       card.append(el("div", { class: "picker-filter-label" }, formatMuscle(group)), row);
     }
     return any ? card : null;
@@ -1497,6 +1520,7 @@ async function renderCustomMode(root, onFinish) {
     openFocusPicker({
       exerciseLib,
       freqMap,
+      growthMap,
       focusGroups: [...targetGroups],
       exclude: exercises.filter((e) => e.kind !== "cardio").map((e) => e.exercise),
       includeCardio: true,
