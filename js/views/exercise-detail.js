@@ -4,8 +4,16 @@ import {
   exerciseSecondary,
   EXERCISE_SUBSTITUTES,
 } from "../rp.js";
-import { listCustomExercises, listSets, weeklyVolumeByExercise } from "../data.js";
+import {
+  listCustomExercises,
+  listSets,
+  weeklyVolumeByExercise,
+  getExerciseHistory,
+  getExerciseOverride,
+} from "../data.js";
 import { mondayOf } from "../goals.js";
+import { analyze, adaptiveSuggestWeight } from "../adaptive.js";
+import { toDisplay, unitLabel } from "../units.js";
 
 function titleCase(s) {
   return (s || "").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -63,6 +71,49 @@ export async function render(container, name) {
       ),
     ),
   );
+
+  // Calibrated profile card — the engine's per-exercise read (confidence,
+  // calibrated rep range, rest band, personal progression rate, fatigue status,
+  // estimated 1RM). Mirrors what the Insights screen shows for one exercise but
+  // lives here so users discover it while browsing the library.
+  try {
+    const [history, override] = await Promise.all([
+      getExerciseHistory(ex.name),
+      getExerciseOverride(ex.name),
+    ]);
+    if (history.length) {
+      const analysis = analyze(ex.name, history, override || {});
+      const targetRIR = override?.targetRIR != null ? override.targetRIR : 2;
+      const last = analysis.topSet;
+      const next = last ? adaptiveSuggestWeight(last, analysis.repRange.min, targetRIR, ex.name, history, override || {}) : null;
+      const card = el("section", { class: "card" },
+        el("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center" } },
+          el("h3", { style: { margin: 0 } }, "Your calibrated profile"),
+          el("a", { class: "btn small ghost", href: `#/insights/${encodeURIComponent(ex.name)}` }, "Insights →"),
+        ),
+        el("div", { class: "exercise-meta", style: { marginTop: "0.4rem" } },
+          el("span", { class: "pill" }, `${analysis.confidence} · ${analysis.sessionCount} session${analysis.sessionCount === 1 ? "" : "s"}`),
+          el("span", { class: "pill" }, `${analysis.repRange.label} reps${analysis.repRange.source === "manual" ? " (manual)" : ""}`),
+          el("span", { class: "pill" }, `${analysis.rest.label} rest`),
+          el("span", { class: "pill" }, `${targetRIR} RIR${override?.targetRIR != null ? " (manual)" : ""}`),
+        ),
+        el("div", { class: "muted small", style: { marginTop: "0.4rem" } },
+          `Progression rate ${analysis.progression.label}/session (${analysis.progression.source})`),
+        analysis.estimatedMax > 0
+          ? el("div", { class: "muted small" }, `Est. 1RM ~${toDisplay(analysis.estimatedMax)} ${unitLabel()}`)
+          : null,
+        next != null
+          ? el("div", { class: "muted small" }, `Suggested next top set: ${toDisplay(next)} ${unitLabel()} × ${analysis.repRange.min}–${analysis.repRange.max} @ ${targetRIR} RIR`)
+          : null,
+        analysis.fatigueWarning
+          ? el("div", { class: "banner warn", style: { marginTop: "0.4rem" } }, `⚠️ ${analysis.fatigueWarning}`)
+          : null,
+      );
+      root.append(card);
+    }
+  } catch {
+    // Skip silently if history isn't available.
+  }
 
   const sec = exerciseSecondary(ex.name);
   root.append(
