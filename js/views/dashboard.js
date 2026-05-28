@@ -74,6 +74,24 @@ function progressRing(pct, centerTop, centerBottom) {
   return svg;
 }
 
+// Session duration in minutes from "HH:MM" strings; 0 when unusable. Wraps a
+// single midnight crossover but rejects gaps > 12 h as data-entry mistakes.
+function sessionMinutes(s) {
+  if (!s || !s.startTime || !s.endTime) return 0;
+  const parse = (t) => {
+    const parts = String(t).split(":");
+    const h = +parts[0], mn = +parts[1];
+    if (!Number.isFinite(h) || !Number.isFinite(mn)) return null;
+    return h * 60 + mn;
+  };
+  const start = parse(s.startTime), end = parse(s.endTime);
+  if (start == null || end == null) return 0;
+  let mins = end - start;
+  if (mins < 0) mins += 24 * 60;
+  if (mins > 12 * 60) return 0;
+  return mins;
+}
+
 // Sunday-aligned week ranges, oldest→newest, ending with the current week.
 function lastNWeeks(n) {
   const now = new Date();
@@ -1014,6 +1032,41 @@ export async function render(container, { signedIn }) {
       requestAnimationFrame(() => drawChart(cvs,
         [{ label: `Volume (${unitLabel()})`, color: "#4da6ff", points: tonData }],
         { type: "line", xLabels: weeks.map((w) => w.label) }));
+    }
+
+    // Session density (volume/min, sets/min) over the last 8 weeks. Sessions
+    // without startTime/endTime are dropped; weeks with no timed sessions show
+    // no point. Reveals whether sessions are bloating (more time, same work) or
+    // tightening up.
+    const densityVol = [], densitySets = [];
+    for (let i = 0; i < weeks.length; i++) {
+      const w = weeks[i];
+      const wkSessions = allSessions.filter((s) => s.date >= w.start && s.date <= w.end);
+      const totalMins = wkSessions.reduce((sum, s) => sum + sessionMinutes(s), 0);
+      if (!totalMins) continue;
+      const wkSets = workingSets.filter((s) => s.date >= w.start && s.date <= w.end);
+      const wkVol = wkSets.reduce((sum, s) => sum + setVol(s), 0);
+      densityVol.push({ x: i, y: Math.round(toDisplay(wkVol) / totalMins) });
+      densitySets.push({ x: i, y: Math.round((wkSets.length / totalMins) * 100) / 100 });
+    }
+    if (densityVol.length >= 2) {
+      const cvs1 = el("canvas", { style: { width: "100%", height: "170px" } });
+      const cvs2 = el("canvas", { style: { width: "100%", height: "170px" } });
+      grid.append(el("section", { class: "card span2" },
+        secHead("⏱️", "Session density", `volume/min · sets/min · last 8 weeks`),
+        el("div", { class: "chart-container" }, cvs1),
+        el("div", { class: "chart-container" }, cvs2),
+        el("p", { class: "muted small", style: { marginTop: "0.4rem" } },
+          "Computed from session start/end times. Weeks with no timed sessions are skipped."),
+      ));
+      requestAnimationFrame(() => {
+        drawChart(cvs1,
+          [{ label: `${unitLabel()}/min`, color: "#39b54a", points: densityVol }],
+          { type: "line", xLabels: weeks.map((w) => w.label), yLabel: `${unitLabel()}/min` });
+        drawChart(cvs2,
+          [{ label: "sets/min", color: "#c97bff", points: densitySets }],
+          { type: "line", xLabels: weeks.map((w) => w.label), yLabel: "sets/min" });
+      });
     }
 
     // 12-week training calendar.

@@ -6,6 +6,25 @@ import { epley1RM } from "../rp.js";
 import { toDisplay, fromDisplay, unitLabel, isDumbbell, dbVolumeFactor } from "../units.js";
 import { renderSummary } from "./workout.js";
 
+// Session duration in minutes from "HH:MM" strings. Returns 0 when either side
+// is missing/unparseable, or when the gap looks suspect (> 12 h, suggesting a
+// typo or unmarked next-day end). Wraps a single midnight crossover.
+function parseSessionMinutes(session) {
+  if (!session || !session.startTime || !session.endTime) return 0;
+  const m = (s) => {
+    const parts = String(s).split(":");
+    const h = +parts[0], mn = +parts[1];
+    if (!Number.isFinite(h) || !Number.isFinite(mn)) return null;
+    return h * 60 + mn;
+  };
+  const s = m(session.startTime), e = m(session.endTime);
+  if (s == null || e == null) return 0;
+  let mins = e - s;
+  if (mins < 0) mins += 24 * 60;
+  if (mins > 12 * 60) return 0;
+  return mins;
+}
+
 export async function render(container) {
   const [sessionsSrc, setsSrc, allMesos, cardioEntries, eqMap] = await Promise.all([
     data.listSessions(),
@@ -229,12 +248,33 @@ export async function render(container) {
     }
 
     const vol = dateSets.reduce((sum, s) => sum + setVol(s), 0);
-    detail.append(
-      el("div", { class: "volume-summary" },
-        el("span", { class: "muted" }, "Total volume: "),
-        el("strong", {}, `${toDisplay(vol).toLocaleString()} ${unitLabel()}`),
-      ),
+    const workingCount = dateSets.filter((s) => s.setType !== "warmup").length;
+    const sessForVitals = dateSessions ? dateSessions[0] : null;
+    const sessionMinutes = parseSessionMinutes(sessForVitals);
+
+    const vitals = el("div", { class: "volume-summary" },
+      el("span", { class: "muted" }, "Total volume: "),
+      el("strong", {}, `${toDisplay(vol).toLocaleString()} ${unitLabel()}`),
     );
+    if (sessionMinutes > 0) {
+      const densityVol = toDisplay(vol) / sessionMinutes;
+      const densitySets = workingCount / sessionMinutes;
+      vitals.append(
+        el("span", { class: "muted", style: { marginLeft: "0.75rem" } }, " · "),
+        el("span", { class: "muted" }, "Duration: "),
+        el("strong", {}, `${sessionMinutes} min`),
+        el("span", { class: "muted", style: { marginLeft: "0.75rem" } }, " · "),
+        el("span", { class: "muted" }, "Density: "),
+        el("strong", {}, `${Math.round(densityVol)} ${unitLabel()}/min · ${densitySets.toFixed(2)} sets/min`),
+      );
+    } else if (workingCount > 0) {
+      vitals.append(
+        el("span", { class: "muted", style: { marginLeft: "0.75rem" } }, " · "),
+        el("strong", {}, `${workingCount}`),
+        el("span", { class: "muted" }, " working sets"),
+      );
+    }
+    detail.append(vitals);
 
     const summaryBtn = el("button", { class: "btn small", style: { marginTop: "0.5rem", marginRight: "0.5rem" } }, "View summary");
     summaryBtn.onclick = () => openSummaryModal(dateSets[0].mesoId, date);
