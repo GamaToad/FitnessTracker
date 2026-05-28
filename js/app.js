@@ -13,6 +13,7 @@ import * as settings from "./views/settings.js";
 import * as insights from "./views/insights.js";
 import * as sheets from "./sheets.js";
 import { el, clear, toast } from "./ui.js";
+import { hideSetController } from "./setcontroller.js";
 
 const view = document.getElementById("view");
 const authSlot = document.getElementById("auth-slot");
@@ -67,6 +68,10 @@ function renderAuth(state) {
 function wrap(fn) {
   return async (params) => {
     clear(view);
+    // The set controller is a body-appended singleton, so clearing #view alone
+    // leaves it on screen. Hide it on every nav; the workout view re-registers
+    // it on its own render path.
+    hideSetController();
     setActiveTab();
     view.append(el("p", { class: "muted" }, "Loading…"));
     try {
