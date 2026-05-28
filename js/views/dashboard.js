@@ -1,7 +1,7 @@
 import { el, fmtDate, isoToday, stat, formatMuscle } from "../ui.js";
 import * as data from "../data.js";
 import * as sheets from "../sheets.js";
-import { drawChart, sparkline } from "../chart.js";
+import { drawChart, drawDonut, sparkline } from "../chart.js";
 import { toDisplay, unitLabel, dbVolumeFactor } from "../units.js";
 import { buildVolumeSuggestionCard } from "./workout.js";
 import {
@@ -862,6 +862,37 @@ export async function render(container, { signedIn }) {
         card.append(el("p", { class: "muted small" }, "On track — effort (RIR) and completed sets are matching the plan."));
       }
       grid.append(card);
+    }
+
+    // ── Intensifier mix (light): donut of working-set type usage over 4 wks ──
+    {
+      const cutoff = lastNWeeks(4)[0].start;
+      const counts = { working: 0, drop: 0, myorep: 0, failure: 0 };
+      for (const s of allSets) {
+        if (s.date < cutoff) continue;
+        if (s.setType === "warmup") continue;
+        const t = s.setType || "working";
+        if (counts[t] != null) counts[t] += 1;
+      }
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      const nonWorking = counts.drop + counts.myorep + counts.failure;
+      if (total > 0 && nonWorking > 0) {
+        const segments = [
+          { label: "Working", value: counts.working, color: "#39b54a" },
+          counts.drop ? { label: "Drop", value: counts.drop, color: "#ffb547" } : null,
+          counts.myorep ? { label: "Myo-reps", value: counts.myorep, color: "#4da6ff" } : null,
+          counts.failure ? { label: "Failure", value: counts.failure, color: "#ff5a1f" } : null,
+        ].filter(Boolean);
+        const cvs = el("canvas", { style: { width: "100%", height: "200px" } });
+        const card = el("section", { class: "card" },
+          secHead("⚡", "Intensifier mix", "last 4 weeks"),
+          el("div", { class: "chart-container" }, cvs),
+          el("p", { class: "muted small" },
+            `${Math.round((nonWorking / total) * 100)}% of working sets used an intensifier (drop / myo-reps / failure).`),
+        );
+        grid.append(card);
+        requestAnimationFrame(() => drawDonut(cvs, segments, { legend: "right" }));
+      }
     }
 
     // ── Recovery cockpit: per-muscle feedback trend grid ──
