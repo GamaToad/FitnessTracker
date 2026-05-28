@@ -712,6 +712,63 @@ export async function render(container, { signedIn }) {
       );
     }
 
+    // ── Volume attribution: where this week's sets came from per muscle ──
+    {
+      const todayMon = mondayOf(isoToday());
+      const weekEndDt = new Date(todayMon + "T00:00:00"); weekEndDt.setDate(weekEndDt.getDate() + 6);
+      const weekEndStr = weekEndDt.toISOString().slice(0, 10);
+      const byMuscle = {};
+      const ensure = (g, ex) => {
+        byMuscle[g] ||= new Map();
+        if (!byMuscle[g].has(ex)) byMuscle[g].set(ex, { exercise: ex, direct: 0, indirect: 0 });
+        return byMuscle[g].get(ex);
+      };
+      for (const s of workingSets) {
+        if (s.date < todayMon || s.date > weekEndStr) continue;
+        if (s.muscleGroup) ensure(s.muscleGroup, s.exercise).direct += 1;
+        for (const sec of exerciseSecondary(s.exercise)) ensure(sec.group, s.exercise).indirect += sec.fraction;
+      }
+      const muscleRows = Object.entries(byMuscle)
+        .map(([mg, m]) => ({ mg, items: [...m.values()].sort((a, b) => (b.direct + b.indirect) - (a.direct + a.indirect)) }))
+        .filter((r) => r.items.length)
+        .sort((a, b) =>
+          b.items.reduce((s, x) => s + x.direct + x.indirect, 0) -
+          a.items.reduce((s, x) => s + x.direct + x.indirect, 0))
+        .slice(0, 8);
+      if (muscleRows.length) {
+        const card = el("section", { class: "card span2" }, secHead("🧮", "Volume attribution", "this week, per muscle"));
+        for (const { mg, items } of muscleRows) {
+          const total = items.reduce((s, x) => s + x.direct + x.indirect, 0);
+          if (!total) continue;
+          const bar = el("div", { style: { display: "flex", height: "12px", borderRadius: "6px", overflow: "hidden", background: "var(--panel-2)", marginTop: "0.2rem" } });
+          items.forEach((it, i) => {
+            const v = it.direct + it.indirect;
+            const pct = (v / total) * 100;
+            if (pct < 0.5) return;
+            const color = DIST_COLORS[i % DIST_COLORS.length];
+            bar.append(el("div", {
+              title: `${it.exercise}: ${it.direct % 1 ? it.direct.toFixed(1) : it.direct} direct + ${it.indirect % 1 ? it.indirect.toFixed(1) : it.indirect} indirect (${Math.round(pct)}%)`,
+              style: { width: pct + "%", background: color, opacity: it.direct > 0 ? 1 : 0.5 },
+            }));
+          });
+          const top = items.slice(0, 3).map((it) => `${it.exercise} ${Math.round(((it.direct + it.indirect) / total) * 100)}%`).join(" · ");
+          card.append(
+            el("div", { style: { padding: "0.4rem 0", borderTop: "1px solid var(--panel-2)" } },
+              el("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center" } },
+                el("strong", {}, formatMuscle(mg)),
+                el("span", { class: "muted small" }, `${total % 1 ? total.toFixed(1) : total} sets`),
+              ),
+              bar,
+              el("div", { class: "muted small", style: { marginTop: "0.2rem" } }, top),
+            ),
+          );
+        }
+        card.append(el("p", { class: "muted small", style: { marginTop: "0.5rem" } },
+          "Solid segment = direct sets, faded = indirect from compounds. Reveals how much of an isolation muscle's volume is actually a carryover from your compound work."));
+        grid.append(card);
+      }
+    }
+
     // Muscle imbalance ratios (trailing 4 weeks).
     const cutoff = weeks[4].start; // start of the 5th-from-last week → last 4 weeks
     const recent = workingSets.filter((s) => s.date >= cutoff);

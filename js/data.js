@@ -713,6 +713,39 @@ export async function weeklyVolume(mesoId, week) {
   return out;
 }
 
+// Per-exercise breakdown of weekly volume for each muscle group. Lets the UI
+// answer "where did Triceps' 12 sets come from this week — Bench, OHP, or
+// Skullcrushers?" by attributing direct sets fully and indirect sets at the
+// secondary fraction. Filter is either { mesoId, week } (mesocycle weeks) or
+// { dateFrom, dateTo } (calendar dates, inclusive). Returns
+//   { [group]: [{ exercise, direct, indirect }] }
+// sorted within each muscle by total (direct + indirect) descending.
+export async function weeklyVolumeByExercise(filter = {}) {
+  const all = await listSets();
+  const out = {};
+  const ensure = (g, ex) => {
+    out[g] ||= new Map();
+    if (!out[g].has(ex)) out[g].set(ex, { exercise: ex, direct: 0, indirect: 0 });
+    return out[g].get(ex);
+  };
+  for (const s of all) {
+    if (s.setType === "warmup") continue;
+    if (filter.mesoId != null && (s.mesoId !== filter.mesoId || +s.week !== +filter.week)) continue;
+    if (filter.dateFrom && s.date < filter.dateFrom) continue;
+    if (filter.dateTo && s.date > filter.dateTo) continue;
+    if (!s.exercise) continue;
+    if (s.muscleGroup) ensure(s.muscleGroup, s.exercise).direct += 1;
+    for (const sec of exerciseSecondary(s.exercise)) {
+      ensure(sec.group, s.exercise).indirect += sec.fraction;
+    }
+  }
+  const result = {};
+  for (const [group, m] of Object.entries(out)) {
+    result[group] = [...m.values()].sort((a, b) => (b.direct + b.indirect) - (a.direct + a.indirect));
+  }
+  return result;
+}
+
 // ── Set edit/delete ──
 
 export async function deleteSet(id) {

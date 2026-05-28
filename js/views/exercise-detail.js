@@ -1,10 +1,11 @@
-import { el, formatMuscle, fmtDate } from "../ui.js";
+import { el, formatMuscle, fmtDate, isoToday } from "../ui.js";
 import {
   lookupExercise,
   exerciseSecondary,
   EXERCISE_SUBSTITUTES,
 } from "../rp.js";
-import { listCustomExercises, listSets } from "../data.js";
+import { listCustomExercises, listSets, weeklyVolumeByExercise } from "../data.js";
+import { mondayOf } from "../goals.js";
 
 function titleCase(s) {
   return (s || "").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -93,6 +94,47 @@ export async function render(container, name) {
         )),
       ),
     );
+  }
+
+  // Volume attribution: how much of this week's volume on each muscle this
+  // exercise has driven so far. Surfaces compound carryover ("Bench is already
+  // 40% of your Triceps this week") at the point the user picks substitutes.
+  try {
+    const todayMon = mondayOf(isoToday());
+    const weekEndDt = new Date(todayMon + "T00:00:00"); weekEndDt.setDate(weekEndDt.getDate() + 6);
+    const weekEnd = weekEndDt.toISOString().slice(0, 10);
+    const byMuscle = await weeklyVolumeByExercise({ dateFrom: todayMon, dateTo: weekEnd });
+    const rows = [];
+    for (const [group, list] of Object.entries(byMuscle)) {
+      const mine = list.find((x) => x.exercise === ex.name);
+      if (!mine) continue;
+      const total = list.reduce((s, x) => s + x.direct + x.indirect, 0);
+      const v = mine.direct + mine.indirect;
+      if (!total || !v) continue;
+      rows.push({ group, share: v / total, sets: v, total, direct: mine.direct });
+    }
+    rows.sort((a, b) => b.share - a.share);
+    if (rows.length) {
+      root.append(
+        el("section", { class: "card" },
+          el("h3", {}, "Drives this week"),
+          el("p", { class: "muted small" }, "How much of each muscle's weekly volume came from this exercise so far this week."),
+          ...rows.map((r) =>
+            el("div", { style: { marginTop: "0.4rem" } },
+              el("div", { class: "row", style: { justifyContent: "space-between" } },
+                el("strong", {}, formatMuscle(r.group)),
+                el("span", { class: "muted small" },
+                  `${Math.round(r.share * 100)}% · ${r.sets % 1 ? r.sets.toFixed(1) : r.sets}/${r.total % 1 ? r.total.toFixed(1) : r.total} sets`),
+              ),
+              el("div", { style: { height: "6px", background: "var(--panel-2)", borderRadius: "3px", overflow: "hidden", marginTop: "0.2rem" } },
+                el("div", { style: { width: Math.round(r.share * 100) + "%", height: "100%", background: r.direct > 0 ? "var(--accent)" : "var(--ok)" } }),
+              ),
+            )),
+        ),
+      );
+    }
+  } catch {
+    // Skip silently if sets aren't available.
   }
 
   // Recent personal sets, if any are logged.
